@@ -95,7 +95,6 @@ def select_polygon_roi(image_path):
     cv2.destroyAllWindows()
     return cropped, (y, y+h, x, x+w)
 
-cropped_test_img, loc = select_polygon_roi('Lenna_(test_image).png')
 # 사용 예시
 # cv2.imshow('cropped', select_polygon_roi('Lenna_(test_image).png'))
 
@@ -150,6 +149,62 @@ def downscale_img(image_path, scaler):
 
     return result
 
-print(cv2.__version__)
+################################
+# combine two images
+################################
 
 
+def combine_images(A, B):
+    """
+    A: (H, W, 3) shape의 넘파이 배열 (검은색 픽셀 기준)
+    B: (H, W, 3) shape의 넘파이 배열 (A의 검은 픽셀 대체용)
+    """
+    # 1. A 이미지에서 검은색 픽셀 마스크 생성
+    black_mask = np.all(A == [0, 0, 0], axis=2)
+    
+    # 2. 3채널에 적용 가능하도록 차원 확장
+    mask_3d = black_mask[:, :, np.newaxis]
+    
+    # 3. 조건에 따라 픽셀 선택
+    return np.where(mask_3d, B, A)
+
+
+################################
+# rename images for convinience
+################################
+
+def rename_images_by_resolution(folder_path):
+    # 해상도별로 파일 개수를 기록할 딕셔너리
+    resolution_count = defaultdict(int)
+
+    # 폴더 내 모든 png 파일 목록
+    files = [f for f in os.listdir(folder_path) if f.lower().endswith('.png')]
+
+    for file_name in files:
+        file_path = os.path.join(folder_path, file_name)
+        try:
+            with Image.open(file_path) as img:
+                width, height = img.size
+                resolution = f"{width}x{height}"
+
+                # 해당 해상도 파일 개수 증가
+                resolution_count[resolution] += 1
+                count = resolution_count[resolution]
+
+                # 새 파일명 생성
+                if count == 1:
+                    new_name = f"{resolution}.png"
+                else:
+                    new_name = f"{resolution}-{count-1}.png"
+
+                new_path = os.path.join(folder_path, new_name)
+
+                # 파일명 변경
+                os.rename(file_path, new_path)
+                print(f"Renamed '{file_name}' to '{new_name}'")
+
+        except Exception as e:
+            print(f"Error processing {file_name}: {e}")
+
+# 사용 예시 (폴더 경로를 원하는 경로로 바꿔서 사용)
+# rename_images_by_resolution('sample-images-png')
