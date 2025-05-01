@@ -46,54 +46,56 @@ def crop_by_drag(image_path, mode=ROI_mode.Rectengle):
 
 # crop_by_drag('Lenna_(test_image).png')
 
-# 마우스 콜백 함수
-# drawing = False
-# points = []
 
-# def draw_polygon(event, x, y, flags, param):
-#     global drawing, points
-#     if event == cv2.EVENT_LBUTTONDOWN:
-#         points.append((x, y))
-#     elif event == cv2.EVENT_RBUTTONDOWN and len(points) >= 3:
-#         drawing = False  # 다각형 닫기
+# mousecallback
+drawing = False
+points = []
 
-# def select_polygon_roi(image_path):
-#     global drawing, points
-#     img = cv2.imread(image_path)
-#     clone = img.copy()
-#     cv2.namedWindow("이미지에서 다각형 ROI 지정")
-#     cv2.setMouseCallback("이미지에서 다각형 ROI 지정", draw_polygon)
+def draw_polygon(event, x, y, flags, param):
+    global drawing, points
+    if event == cv2.EVENT_LBUTTONDOWN:
+        points.append((x, y))
+    elif event == cv2.EVENT_RBUTTONDOWN and len(points) >= 3:
+        drawing = False  # 다각형 닫기
 
-#     drawing = True
-#     while drawing:
-#         temp = clone.copy()
-#         if len(points) > 0:
-#             cv2.polylines(temp, [np.array(points)], False, (0,255,0), 2)
-#             for pt in points:
-#                 cv2.circle(temp, pt, 3, (0,0,255), -1)
-#         cv2.imshow("이미지에서 다각형 ROI 지정", temp)
-#         key = cv2.waitKey(1)
-#         if key == 27:  # ESC로 취소
-#             points = []
-#             break
-#         if key == ord('s') and len(points) >= 3:  # 's'로 저장
-#             drawing = False
+def select_polygon_roi(image_path):
+    global drawing, points
+    img = cv2.imread(image_path)
+    clone = img.copy()
+    cv2.namedWindow("indicate polygon in img")
+    # cv2.waitKey(1) # 이거 붙여야 된다고? 뭐지?
+    cv2.setMouseCallback("indicate polygon in img", draw_polygon)
 
-#     if len(points) >= 3:
-#         mask = np.zeros(img.shape[:2], dtype=np.uint8)
-#         cv2.fillPoly(mask, [np.array(points)], 255)
-#         roi = cv2.bitwise_and(img, img, mask=mask)
-#         # 다각형의 bounding box로 crop
-#         pts = np.array(points)
-#         x, y, w, h = cv2.boundingRect(pts)
-#         cropped = roi[y:y+h, x:x+w]
-#         cv2.imshow("다각형 ROI", cropped)
-#         cv2.waitKey(0)
-#     else:
-#         print("3개 이상의 꼭짓점이 필요합니다.")
+    drawing = True
+    while drawing:
+        temp = clone.copy()
+        if len(points) > 0:
+            cv2.polylines(temp, [np.array(points)], False, (0,255,0), 2)
+            for pt in points:
+                cv2.circle(temp, pt, 3, (0,0,255), -1)
+        cv2.imshow("indicate polygon in img", temp)
+        key = cv2.waitKey(1)
+        if key == 27:  # ESC로 취소
+            points = []
+            break
+        if key == ord('s') and len(points) >= 3:  # 's'로 저장
+            drawing = False
 
-#     cv2.destroyAllWindows()
-#     return cropped, (y, y+h, x, x+w)
+    if len(points) >= 3:
+        mask = np.zeros(img.shape[:2], dtype=np.uint8)
+        cv2.fillPoly(mask, [np.array(points)], 255)
+        roi = cv2.bitwise_and(img, img, mask=mask)
+        # 다각형의 bounding box로 crop
+        pts = np.array(points)
+        x, y, w, h = cv2.boundingRect(pts)
+        cropped = roi[y:y+h, x:x+w]
+        cv2.imshow("polygon ROI", cropped)
+        cv2.waitKey(0)
+    else:
+        print("3개 이상의 꼭짓점이 필요합니다.")
+
+    cv2.destroyAllWindows()
+    return cropped, (y, y+h, x, x+w)
 
 # 사용 예시
 # cv2.imshow('cropped', select_polygon_roi('Lenna_(test_image).png'))
@@ -249,11 +251,15 @@ def black_pixel_ratio(image_path):
     print(f"검은 픽셀 비율: {ratio:.4%}")
     return ratio
 
+def mrs3_edsr(img_path, output_path ,scaler)
+    
+
+    return
+
 # black_pixel_ratio('cropped.png')
 
 # img_path = 'sample-images-png/1920x1080.png'
 # original_part, original_part_loc = select_polygon_roi(img_path)
 
-print(cv2.__version__)
 
 
