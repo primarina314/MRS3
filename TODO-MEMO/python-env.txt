@@ -1,0 +1,16 @@
+Python 인터프리터를 직접 선택해야 하며, 터미널에서 가상환경이 활성화된 상태로 실행해야 합니다.
+
+    VS Code 실행 후 작업 폴더를 엽니다.
+
+    Command Palette 열기:
+    Ctrl + Shift + P (Windows/Linux) 또는 Cmd + Shift + P (Mac)
+
+    Python: Select Interpreter 검색 및 실행
+
+    목록에서 원하는 Conda 가상환경 선택
+    (예: Python 3.9.13 ('myenv': conda))
+
+    ![인터프리터 선택](https://code.visualstudio.com/assets/docs/python/environments/interpreters-list.png Code 하단 상태 바에 표시됩니다.
+
+
+
