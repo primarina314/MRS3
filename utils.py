@@ -98,6 +98,24 @@ def select_polygon_roi(image_path):
 # 사용 예시
 # cv2.imshow('cropped', select_polygon_roi('Lenna_(test_image).png'))
 
+############################
+# 사각형 원본 저장 - 좌표 기준
+############################
+
+def specify_part_of_original(image_path, r_from, r_to, c_from, c_to):
+    img = cv2.imread(image_path)
+    if img is None:
+        print(f"Error loading image: {image_path}")
+        return None
+    
+    # 클릭, 드래그 등으로 지정
+    # r_from = 100
+    # r_to = 300
+    # c_from = 200
+    # c_to = 400
+
+    return img[r_from:r_to, c_from:c_to]
+
 
 
 ################################
@@ -208,3 +226,29 @@ def rename_images_by_resolution(folder_path):
 
 # 사용 예시 (폴더 경로를 원하는 경로로 바꿔서 사용)
 # rename_images_by_resolution('sample-images-png')
+
+
+#########################
+# 이미지 내의 검은색(0 0 0) 픽셀 비율
+#########################
+
+def black_pixel_ratio(image_path):
+    img = cv2.imread(image_path)
+    if img is None:
+        raise ValueError("이미지를 불러올 수 없습니다.")
+
+    # (H, W, 3) 배열에서 [0,0,0]인 픽셀 찾기
+    black_mask = np.all(img == [0, 0, 0], axis=2)
+    # axis=2: channel -> (h, w, c) 에서 c 가 사라진 (h, w) 로 리턴 shape
+    black_count = np.sum(black_mask)
+    total_pixels = img.shape[0] * img.shape[1]
+    ratio = black_count / total_pixels
+
+    print(f"검은 픽셀 개수: {black_count}")
+    print(f"전체 픽셀 개수: {total_pixels}")
+    print(f"검은 픽셀 비율: {ratio:.4%}")
+    return ratio
+
+# black_pixel_ratio('cropped.png')
+
+
