@@ -294,15 +294,13 @@ downscaled_path = 'downscaled' # png
 config_path = 'config' # ini
 
 # mrs3 mode, select roi mode
-def mrs3_compress(img_path, output_path, scaler, roi_mode):
+def mrs3_compress(img_path, output_path, scaler, roi_mode, interpolation=cv2.INTER_AREA):
     """
     edsr 기반으로 mrs3
     img_path: mrs3 적용할 이미지 경로
     output_path: 결과 저장할 폴더 경로
     scaler: 이미지 downscale 배율
     """
-
-
 
     img = cv2.imread(img_path)
     
@@ -320,7 +318,7 @@ def mrs3_compress(img_path, output_path, scaler, roi_mode):
         roi, loc = select_polygon_roi(img_path)
 
     # TODO: 다양한 interpolation 비교 및 복원 비교
-    downscaled = downscale_img(img_path, scaler, interpolation=cv2.INTER_AREA)
+    downscaled = downscale_img(img_path, scaler, interpolation=interpolation)
 
 
     # 메타데이터 ini 에 저장
