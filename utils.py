@@ -287,6 +287,12 @@ def black_pixel_ratio(image_path):
     return ratio
 
 
+
+# mrs3 적용 후 파일저장 경로/이름
+roi_path_prefix = 'roi' # png
+downscaled_path = 'downscaled' # png
+config_path = 'config' # ini
+
 # mrs3 mode, select roi mode
 def mrs3_compress(img_path, output_path, scaler, roi_mode):
     """
@@ -296,8 +302,7 @@ def mrs3_compress(img_path, output_path, scaler, roi_mode):
     scaler: 이미지 downscale 배율
     """
 
-    roi_path_prefix = 'roi'
-    downscaled_path = 'downscaled'
+
 
     img = cv2.imread(img_path)
     
@@ -339,13 +344,13 @@ def mrs3_compress(img_path, output_path, scaler, roi_mode):
     # TODO: 타겟 이미지 저장 경로 리스트로 0부터 n-1 까지 순차저장
     cv2.imwrite(f'{output_path}/{downscaled_path}.png', downscaled)
     cv2.imwrite(f'{output_path}/{roi_path_prefix}{0}.png', roi)
-    with open(f'{output_path}/config.ini', 'w') as configfile:
+    with open(f'{output_path}/{config_path}.ini', 'w') as configfile:
         config.write(configfile)
 
     filesize_bef = os.path.getsize(img_path)
     filesize_downscaled = os.path.getsize(f'{output_path}/{downscaled_path}.png')
     filesize_roi = os.path.getsize(f'{output_path}/{roi_path_prefix}{0}.png')
-    filesize_config = os.path.getsize(f'{output_path}/config.ini')
+    filesize_config = os.path.getsize(f'{output_path}/{config_path}.ini')
 
     print(f'original file: {filesize_bef}')
     print(f'downscaled filesize: {filesize_downscaled}')
@@ -357,19 +362,48 @@ def mrs3_compress(img_path, output_path, scaler, roi_mode):
 
     return
 
-def mrs3_restore(input_path, mrs3_mode):
+def mrs3_restore(input_path, mrs3_mode, output_path=""):
     """
     mrs3 처리한 후, 이미지 복원
     input_path: mrs3 적용한 폴더 경로 - 나중에 폴더말고 하나의 파일형식에 저장하도록 수정하는게 좋을듯.
     """
+
+    if not os.path.exists(f'{input_path}/{downscaled_path}.png'):
+        print(f"Error loading image: {input_path}/{downscaled_path}.png")
+        return
+
+    if not os.path.exists(f'{input_path}/{config_path}.ini'):
+        print(f'Error loading config: {input_path}/{config_path}.ini')
+        return
     
+    if not os.path.exists(f'{input_path}/{roi_path_prefix}{0}.png'):
+        print(f'Error loading image: {input_path}/{roi_path_prefix}{0}.png')
+        return
+
+    config = configparser.ConfigParser()
+    config.read(f'{input_path}/{config_path}.ini')
+
+
+    y_from, y_to, x_from, x_to = int(config['0']['Y_FROM']), int(config['0']['Y_TO']), int(config['0']['X_FROM']), int(config['0']['X_TO'])
+    scaler = int(config['DEFAULT']['SCALER'])
 
     if mrs3_mode == MRS3_mode.edsr:
-        return
-    
+        restored = upscale_by_edsr(f'{input_path}/{downscaled_path}.png', scaler=scaler)
     else:
-        return
+        restored = upscale_by_resize('{input_path}/{downscaled_path}.png', scaler=scaler, interpolation=mrs3_mode)
+    
 
+    # TODO: 다수 roi 반영 0 ~ n-1
+    roi = cv2.imread(f'{input_path}/{roi_path_prefix}{0}.png')    
+    combined_roi = combine_images(roi, restored[y_from:y_to, x_from:x_to])
+    restored[y_from:y_to, x_from:x_to] = combined_roi
+
+    cv2.imshow('restored img', restored)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    if output_path != "":
+        cv2.imwrite(output_path, restored)
     return
 
 
