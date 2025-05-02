@@ -7,7 +7,7 @@ from enum import Enum
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from PIL import Image
-
+import configparser
 
 #####################################
 # TODO
@@ -23,28 +23,53 @@ class ROI_mode(Enum):
     Rectengle = 0
     Polygon = 1
 
-def crop_by_drag(image_path, mode=ROI_mode.Rectengle):
+
+# https://vovkos.github.io/doxyrest-showcase/opencv/sphinx_rtd_theme/enum_cv_InterpolationFlags.html
+# https://docs.opencv.org/3.4/da/d54/group__imgproc__transform.html
+# https://docs.opencv.org/4.x/da/d54/group__imgproc__transform.html#gga5bb5a1fea74ea38e1a5445ca803ff121a94cc44aa86159abcff4683ec6841b097
+
+class MRS3_mode(Enum):
+    edsr = -1
+    INTER_NEAREST = cv2.INTER_NEAREST
+    INTER_LINEAR = cv2.INTER_LINEAR
+    INTER_CUBIC = cv2.INTER_CUBIC
+    INTER_AREA = cv2.INTER_AREA
+    INTER_LANCZOS4 = cv2.INTER_LANCZOS4
+    INTER_LINEAR_EXACT = cv2.INTER_LINEAR_EXACT
+    INTER_NEAREST_EXACT = cv2.INTER_NEAREST_EXACT
+    INTER_MAX = cv2.INTER_MAX
+    WARP_FILL_OUTLIERS = cv2.WARP_FILL_OUTLIERS
+    WARP_INVERSE_MAP = cv2.WARP_INVERSE_MAP
+    WARP_RELATIVE_MAP = cv2.WARP_RELATIVE_MAP
+
+def select_rectangle_roi(image_path):
+    """
+    input_path: 추출할 이미지 경로
+    return: roi ndarray, (from_y, to_y, from_x, to_x)
+    """
+
     # 이미지 불러오기
     img = cv2.imread(image_path)
     if img is None:
         print("이미지를 불러올 수 없습니다.")
-        return
+        return None, None
 
     # ROI(관심영역) 선택 창 띄우기 (마우스로 드래그)
-    x, y, w, h = cv2.selectROI("이미지에서 영역을 드래그하세요", img, showCrosshair=True, fromCenter=False)
+    x, y, w, h = cv2.selectROI("select part to remain by dragging", img, showCrosshair=True, fromCenter=False)
 
     # ROI가 정상적으로 선택된 경우에만 진행
     if w > 0 and h > 0:
         roi = img[y:y+h, x:x+w]
-        cv2.imshow("선택된 영역", roi)
+        cv2.imshow("selected part", roi)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
+        return roi, (y, y+h, x, x+w)
     else:
-        print("영역이 선택되지 않았습니다.")
+        print("None of part selected")
         cv2.waitKey(0)
         cv2.destroyAllWindows()
-
-# crop_by_drag('Lenna_(test_image).png')
+        print("none")
+        return None, None
 
 
 # mousecallback
@@ -63,7 +88,6 @@ def select_polygon_roi(image_path):
     img = cv2.imread(image_path)
     clone = img.copy()
     cv2.namedWindow("indicate polygon in img")
-    # cv2.waitKey(1) # 이거 붙여야 된다고? 뭐지?
     cv2.setMouseCallback("indicate polygon in img", draw_polygon)
 
     drawing = True
@@ -93,6 +117,7 @@ def select_polygon_roi(image_path):
         cv2.waitKey(0)
     else:
         print("3개 이상의 꼭짓점이 필요합니다.")
+        return None, None
 
     cv2.destroyAllWindows()
     return cropped, (y, y+h, x, x+w)
@@ -124,7 +149,7 @@ def specify_part_of_original(image_path, r_from, r_to, c_from, c_to):
 # upscale
 ################################
 
-def upscale_img(image_path, scaler):
+def upscale_by_edsr(image_path, scaler):
     img = cv2.imread(image_path)
     if img is None:
         print(f"Error loading image: {image_path}")
@@ -157,16 +182,26 @@ def upscale_img(image_path, scaler):
 
     return result
 
+def upscale_by_resize(image_path, scaler, interpolation = cv2.INTER_CUBIC):
+    img = cv2.imread(image_path)
+    if img is None:
+        print(f"Error loading image: {image_path}")
+        return None
+    h, w = img.shape[0] * scaler, img.shape[1] * scaler
+    result = cv2.resize(img, (w, h), interpolation=interpolation)
+    return result
 
-def downscale_img(image_path, scaler):
+################################
+# downscale
+################################
+def downscale_img(image_path, scaler, interpolation = cv2.INTER_AREA):
     img = cv2.imread(image_path)
     if img is None:
         print(f"Error loading image: {image_path}")
         return None
     new_h, new_w = img.shape[0]//scaler, img.shape[1]//scaler
 
-    result = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-
+    result = cv2.resize(img, (new_w, new_h), interpolation=interpolation)
     return result
 
 ################################
@@ -251,15 +286,118 @@ def black_pixel_ratio(image_path):
     print(f"검은 픽셀 비율: {ratio:.4%}")
     return ratio
 
-def mrs3_edsr(img_path, output_path ,scaler)
+
+# mrs3 mode, select roi mode
+def mrs3_compress(img_path, output_path, scaler, roi_mode):
+    """
+    edsr 기반으로 mrs3
+    img_path: mrs3 적용할 이미지 경로
+    output_path: 결과 저장할 폴더 경로
+    scaler: 이미지 downscale 배율
+    """
+
+    roi_path_prefix = 'roi'
+    downscaled_path = 'downscaled'
+
+    img = cv2.imread(img_path)
     
+    if img is None:
+        print(f"Error loading image: {img_path}")
+        return
+
+    # TODO: 타겟 개수 조정할 수 있도록 추가
+
+    # 이미지 축소 및 roi 저장
+    if roi_mode == ROI_mode.Rectengle:
+        roi, loc = select_rectangle_roi(img_path)
+    
+    if roi_mode == ROI_mode.Polygon:
+        roi, loc = select_polygon_roi(img_path)
+
+    # TODO: 다양한 interpolation 비교 및 복원 비교
+    downscaled = downscale_img(img_path, scaler, interpolation=cv2.INTER_AREA)
+
+
+    # 메타데이터 ini 에 저장
+    config = configparser.ConfigParser()
+    config['DEFAULT'] = {
+        'SCALER': f'{scaler}',
+        'NUMBER_OF_TARGETS': f'1'
+    }
+    config['0'] = {
+        'Y_FROM': f'{loc[0]}',
+        'Y_TO': f'{loc[1]}',
+        'X_FROM': f'{loc[2]}',
+        'X_TO': f'{loc[3]}'
+    }
+    # TODO: 타겟 넘버링하여 각자 위치 정보 저장
+
+    # 결과저장 폴더 없을 때 새로 생성
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+
+    # TODO: 타겟 이미지 저장 경로 리스트로 0부터 n-1 까지 순차저장
+    cv2.imwrite(f'{output_path}/{downscaled_path}.png', downscaled)
+    cv2.imwrite(f'{output_path}/{roi_path_prefix}{0}.png', roi)
+    with open(f'{output_path}/config.ini', 'w') as configfile:
+        config.write(configfile)
+
+    filesize_bef = os.path.getsize(img_path)
+    filesize_downscaled = os.path.getsize(f'{output_path}/{downscaled_path}.png')
+    filesize_roi = os.path.getsize(f'{output_path}/{roi_path_prefix}{0}.png')
+    filesize_config = os.path.getsize(f'{output_path}/config.ini')
+
+    print(f'original file: {filesize_bef}')
+    print(f'downscaled filesize: {filesize_downscaled}')
+    print(f'roi filesize: {filesize_roi}')
+    print(f'config filesize: {filesize_config}')
+
+    # 파일 사이즈 압축률 print
+    print(f'compression ratio: {(filesize_downscaled + filesize_roi + filesize_config) / filesize_bef}')
 
     return
 
-# black_pixel_ratio('cropped.png')
+def mrs3_restore(input_path, mrs3_mode):
+    """
+    mrs3 처리한 후, 이미지 복원
+    input_path: mrs3 적용한 폴더 경로 - 나중에 폴더말고 하나의 파일형식에 저장하도록 수정하는게 좋을듯.
+    """
+    
+
+    if mrs3_mode == MRS3_mode.edsr:
+        return
+    
+    else:
+        return
+
+    return
+
 
 # img_path = 'sample-images-png/1920x1080.png'
 # original_part, original_part_loc = select_polygon_roi(img_path)
 
 
+
+# print("interpolation flags")
+# print(cv2.INTER_NEAREST)
+# print(cv2.INTER_LINEAR)
+# print(cv2.INTER_CUBIC)
+# print(cv2.INTER_AREA)
+# print(cv2.INTER_LANCZOS4)
+# print(cv2.INTER_LINEAR_EXACT)
+# print(cv2.INTER_NEAREST_EXACT)
+# print(cv2.INTER_MAX)
+# print(cv2.WARP_FILL_OUTLIERS)
+# print(cv2.WARP_INVERSE_MAP)
+# print(cv2.WARP_RELATIVE_MAP)
+
+# print("interpolation masks")
+# print(cv2.INTER_BITS)
+# print(cv2.INTER_BITS2)
+# print(cv2.INTER_TAB_SIZE)
+# print(cv2.INTER_TAB_SIZE2)
+
+# print("warp polar mode")
+# print(cv2.WARP_POLAR_LINEAR)
+# print(cv2.WARP_POLAR_LOG)
 
