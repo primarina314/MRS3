@@ -147,6 +147,7 @@ def specify_part_of_original(image_path, r_from, r_to, c_from, c_to):
 
 ################################
 # upscale
+# TODO: 메모리 한계 넘어가는 큰 이미지는 분할해서. 분할된 경계가 조금씩 겹치도록 한 후, 여기에도 자연스럽게 blending
 ################################
 
 def upscale_by_edsr(image_path, scaler):
