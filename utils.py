@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 from PIL import Image
 import configparser
+from multipledispatch import dispatch
 
 #####################################
 # TODO
@@ -71,6 +72,347 @@ def select_rectangle_roi(image_path):
         print("none")
         return None, None
 
+
+class foo:
+
+    class enumtest(Enum):
+        asdfasdf = 1
+    """
+    what?
+    """
+    bar = 12341234123
+
+    def __init__(self):
+        self.bar = 23432
+        foo.bar = 234324
+        self.__private_var = "private var"
+
+    @classmethod
+    def test():
+        # global bar
+        print(foo.bar)
+
+    # @classmethod
+    # def clsmtd(cls):
+    #     return f"class method:"
+
+    # instance method
+    def insmet(self):
+        """
+        tlqkf
+        """
+        print("instance")
+
+
+class MRS3:
+    edsr = -1
+    INTER_NEAREST = cv2.INTER_NEAREST
+    INTER_LINEAR = cv2.INTER_LINEAR
+    INTER_CUBIC = cv2.INTER_CUBIC
+    INTER_AREA = cv2.INTER_AREA
+    INTER_LANCZOS4 = cv2.INTER_LANCZOS4
+    INTER_LINEAR_EXACT = cv2.INTER_LINEAR_EXACT
+    INTER_NEAREST_EXACT = cv2.INTER_NEAREST_EXACT
+    INTER_MAX = cv2.INTER_MAX
+    WARP_FILL_OUTLIERS = cv2.WARP_FILL_OUTLIERS
+    WARP_INVERSE_MAP = cv2.WARP_INVERSE_MAP
+    WARP_RELATIVE_MAP = cv2.WARP_RELATIVE_MAP
+
+    Rectengle = 0
+    Polygon = 1
+
+    def __init__(
+            self, 
+            img_path = 'Lenna_(test_image).png', 
+            output_path = 'mrs3-output', 
+            scaler = 4, 
+            interpolation = INTER_AREA, 
+            roi_mode = Polygon, 
+            mrs3_mode = edsr
+        ):
+        
+        # f11 전체화면 vsc 로 하면 보기가 훨 편해짐
+        # TODO: input_path, output_path 변수명 바꾸기. compress/restore 에 따라 input/output 달라짐.
+        # 중의성/모호성 해소할 필요있음 - restored, compressed_path 등 기능의 의미가 담기도록 바꾸기.
+
+        # 각 인스턴스마다 원하는 이미지 및 경로 설정
+        self.img_path = img_path
+        self.output_path = output_path
+        self.scaler = scaler
+        self.interpolation = interpolation
+        self.roi_mode = roi_mode
+        self.mrs3_mode = mrs3_mode
+
+        # 결과 부분 경로 prefix, name
+        self.roi_path_prefix = 'roi'
+        self.downscaled_path = 'downscaled'
+        self.config_path = 'config'
+
+        # 어차피 output 경로 다르게 할거면 roi, downscaled, config 경로는 그냥 디폴트값으로 통일해도 괜찮을 것 같기도
+        # 추후에 폴더가 아니라 새로운 확장자로 저장할거니까 이 점을 고려해도 그냥 위 3개는 디폴트로 하는게 나아보임
+        # init 에서 기본적으로 경로, 배율, 모드 등 입력 받기는 하지만, dispatch 통해서 인스턴스 함수의 파라미터로도 설정할 수 있도록 설정(편의성)
+
+        # TODO: 타겟 리스트 추가 -> 타겟 관련은 인스턴스 메서드
+        # TODO: 이미지, 결과물 등 경로 -> 경로 관련은 인스턴스 메서드
+
+        self.targets = []
+        
+        print("MRS3 Initialization")
+
+    # TODO: method 종류 구분 수정
+    # TODO: property 데코레이터 이용해서 getter, setter(경로 - 없는 경로 또는 이미 있는 이미지 이름 등의 경우에 에러)
+
+
+
+    @classmethod
+    def select_rectangle_roi(cls, image_path):
+        """
+        input_path: 추출할 이미지 경로
+        return: roi ndarray, (from_y, to_y, from_x, to_x)
+        """
+
+        # 이미지 불러오기
+        img = cv2.imread(image_path)
+        if img is None:
+            print("이미지를 불러올 수 없습니다.")
+            return None, None
+
+        # ROI(관심영역) 선택 창 띄우기 (마우스로 드래그)
+        x, y, w, h = cv2.selectROI("select part to remain by dragging", img, showCrosshair=True, fromCenter=False)
+
+        # ROI가 정상적으로 선택된 경우에만 진행
+        if w > 0 and h > 0:
+            roi = img[y:y+h, x:x+w]
+            cv2.imshow("selected part", roi)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+            return roi, (y, y+h, x, x+w)
+        else:
+            print("None of part selected")
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+            print("none")
+            return None, None
+    
+    drawing = False
+    points = []
+
+    @classmethod
+    def draw_polygon(cls, event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            cls.points.append((x, y))
+        elif event == cv2.EVENT_RBUTTONDOWN and len(points) >= 3:
+            cls.drawing = False  # 다각형 닫기
+    
+    @classmethod
+    def select_polygon_roi(cls, image_path):
+        img = cv2.imread(image_path)
+        clone = img.copy()
+        cv2.namedWindow("indicate polygon in img")
+        cv2.setMouseCallback("indicate polygon in img", cls.draw_polygon)
+
+        cls.drawing = True
+        while cls.drawing:
+            temp = clone.copy()
+            if len(cls.points) > 0:
+                cv2.polylines(temp, [np.array(cls.points)], False, (0,255,0), 2)
+                for pt in cls.points:
+                    cv2.circle(temp, pt, 3, (0,0,255), -1)
+            cv2.imshow("indicate polygon in img", temp)
+            key = cv2.waitKey(1)
+            if key == 27:  # ESC로 취소
+                cls.points = []
+                break
+            if key == ord('s') and len(cls.points) >= 3:  # 's'로 저장
+                cls.drawing = False
+
+        if len(cls.points) >= 3:
+            mask = np.zeros(img.shape[:2], dtype=np.uint8)
+            cv2.fillPoly(mask, [np.array(cls.points)], 255)
+            roi = cv2.bitwise_and(img, img, mask=mask)
+            # 다각형의 bounding box로 crop
+            pts = np.array(cls.points)
+            x, y, w, h = cv2.boundingRect(pts)
+            cropped = roi[y:y+h, x:x+w]
+            cv2.imshow("polygon ROI", cropped)
+            cv2.waitKey(0)
+        else:
+            print("3개 이상의 꼭짓점이 필요합니다.")
+            return None, None
+
+        cls.drawing = False
+        cls.points = []
+        cv2.destroyAllWindows()
+        return cropped, (y, y+h, x, x+w)
+    
+    
+    ################################
+    # upscale
+    # TODO: 메모리 한계 넘어가는 큰 이미지는 분할해서. 분할된 경계가 조금씩 겹치도록 한 후, 여기에도 자연스럽게 blending
+    # TODO: 모델 경로 변수로 수정
+    ################################
+    @classmethod
+    def upscale_by_edsr(cls, image_path, scaler):
+        img = cv2.imread(image_path)
+        if img is None:
+            print(f"Error loading image: {image_path}")
+            return None
+        if scaler not in [2, 3, 4]:
+            print(f"Invalid scaler value: {scaler}. Must be 2, 3 or 4.")
+            return None
+        if not cv2.cuda.getCudaEnabledDeviceCount():
+            print("No CUDA-enabled GPU found.")
+            return None
+
+        sr = cv2.dnn_superres.DnnSuperResImpl_create()
+        try:
+            sr.readModel(f'models/EDSR_x{scaler}.pb')
+        except Exception as e:
+            print(f"Error reading model: {e}")
+            return None
+
+        # gpu acceleration
+        sr.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+        sr.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+
+        sr.setModel('edsr', scaler)
+
+        try:
+            result = sr.upsample(img)
+        except Exception as e:
+            print(f"Error during upscaling: {e}")
+            return None
+
+        return result
+    
+    @classmethod
+    def upscale_by_resize(cls, image_path, scaler, interpolation = cv2.INTER_CUBIC):
+        img = cv2.imread(image_path)
+        if img is None:
+            print(f"Error loading image: {image_path}")
+            return None
+        h, w = img.shape[0] * scaler, img.shape[1] * scaler
+        result = cv2.resize(img, (w, h), interpolation=interpolation)
+        return result
+    
+    @classmethod
+    def downscale_img(cls, image_path, scaler, interpolation = cv2.INTER_AREA):
+        img = cv2.imread(image_path)
+        if img is None:
+            print(f"Error loading image: {image_path}")
+            return None
+        new_h, new_w = img.shape[0]//scaler, img.shape[1]//scaler
+
+        result = cv2.resize(img, (new_w, new_h), interpolation=interpolation)
+        return result
+    
+    @staticmethod
+    def combine_images(A, B):
+        """
+        A: (H, W, 3) shape의 넘파이 배열 (검은색 픽셀 기준)
+        B: (H, W, 3) shape의 넘파이 배열 (A의 검은 픽셀 대체용)
+        """
+        # 1. A 이미지에서 검은색 픽셀 마스크 생성
+        black_mask = np.all(A == [0, 0, 0], axis=2)
+        
+        # 2. 3채널에 적용 가능하도록 차원 확장
+        mask_3d = black_mask[:, :, np.newaxis]
+        
+        # 3. 조건에 따라 픽셀 선택
+        return np.where(mask_3d, B, A)
+
+
+    @staticmethod
+    def rename_images_by_resolution(folder_path):
+        # 해상도별로 파일 개수를 기록할 딕셔너리
+        resolution_count = defaultdict(int)
+
+        # 폴더 내 모든 png 파일 목록
+        files = [f for f in os.listdir(folder_path) if f.lower().endswith('.png')]
+
+        for file_name in files:
+            file_path = os.path.join(folder_path, file_name)
+            try:
+                with Image.open(file_path) as img:
+                    width, height = img.size
+                    resolution = f"{width}x{height}"
+
+                    # 해당 해상도 파일 개수 증가
+                    resolution_count[resolution] += 1
+                    count = resolution_count[resolution]
+
+                    # 새 파일명 생성
+                    if count == 1:
+                        new_name = f"{resolution}.png"
+                    else:
+                        new_name = f"{resolution}-{count-1}.png"
+
+                    new_path = os.path.join(folder_path, new_name)
+
+                    # 파일명 변경
+                    os.rename(file_path, new_path)
+                    print(f"Renamed '{file_name}' to '{new_name}'")
+
+            except Exception as e:
+                print(f"Error processing {file_name}: {e}")
+    
+    @staticmethod
+    def black_pixel_ratio(image_path):
+        img = cv2.imread(image_path)
+        if img is None:
+            raise ValueError("이미지를 불러올 수 없습니다.")
+
+        # (H, W, 3) 배열에서 [0,0,0]인 픽셀 찾기
+        black_mask = np.all(img == [0, 0, 0], axis=2)
+        # axis=2: channel -> (h, w, c) 에서 c 가 사라진 (h, w) 로 리턴 shape
+        black_count = np.sum(black_mask)
+        total_pixels = img.shape[0] * img.shape[1]
+        ratio = black_count / total_pixels
+
+        print(f"검은 픽셀 개수: {black_count}")
+        print(f"전체 픽셀 개수: {total_pixels}")
+        print(f"검은 픽셀 비율: {ratio:.4%}")
+        return ratio
+
+    @dispatch()
+    def mrs3_compress(self):
+        
+        pass
+
+    @dispatch(str, str, int, int, int)
+    def mrs3_compress(
+            self, 
+            img_path, 
+            output_path, 
+            scaler, 
+            roi_mode, 
+            interpolation=cv2.INTER_AREA
+        ):
+
+        self.img_path = img_path
+        self.output_path = output_path
+        self.scaler = scaler
+        self.roi_mode = roi_mode
+        self.interpolation = interpolation
+
+        pass
+
+    def mrs3_restore(
+            self, 
+            input_path, 
+            mrs3_mode, 
+            restored_path
+        ):
+        # 경로 변수명 compress 와의 중복 때문에 output_path -> restored_path 로 바꿈
+
+
+
+        pass
+
+    # def foo(self,)
+    # TODO: dispatch 이용해서 오버로딩(compress 경로 설정 유무, distance_to_polygon_edge 설정 기준 등)
+    
+####################### 이 위까지가 class 내부 구현 #######################
 
 # mousecallback
 drawing = False
@@ -434,3 +776,8 @@ def mrs3_restore(input_path, mrs3_mode, output_path=""):
 # print(cv2.WARP_POLAR_LINEAR)
 # print(cv2.WARP_POLAR_LOG)
 
+class foobar:
+    def foo():
+        print("asdfasdfsdafasdfds")
+        print("foobar")
+        
