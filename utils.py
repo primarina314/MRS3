@@ -20,6 +20,9 @@ from multipledispatch import dispatch
 # - etc
 #####################################
 
+
+
+
 class ROI_mode(Enum):
     Rectengle = 0
     Polygon = 1
@@ -104,6 +107,9 @@ class foo:
         print("instance")
 
 
+drawing = False
+points = []
+
 class MRS3:
     EDSR = -1
     INTER_NEAREST = cv2.INTER_NEAREST
@@ -124,35 +130,35 @@ class MRS3:
     def __init__(
             self, 
             input_path_compress = 'Lenna_(test_image).png', 
-            output_path_compress = 'mrs3-output', 
-            input_path_restore = '',
-            output_path_restore = '',
+            output_path_compress = 'mrs3-compressed', 
+            input_path_restore = 'mrs3-compressed',
+            output_path_restore = 'mrs3-restored',
             scaler = 4, 
             roi_mode = Polygon, 
             interpolation_compress = INTER_AREA, 
             interpolation_restore = EDSR
         ):
         
-        # f11 전체화면 vsc 로 하면 보기가 훨 편해짐
         # TODO: input_path, output_path 변수명 바꾸기. compress/restore 에 따라 input/output 달라짐.
         # 중의성/모호성 해소할 필요있음 - restored, compressed_path 등 기능의 의미가 담기도록 바꾸기.
 
         # 각 인스턴스마다 원하는 이미지 및 경로 설정
         self.input_path_compress = input_path_compress
         self.output_path_compress = output_path_compress
+        self.input_path_restore = input_path_restore
+        self.output_path_restore = output_path_restore
         self.scaler = scaler
-        self.interpolation_compress = interpolation_compress
         self.roi_mode = roi_mode
+        self.interpolation_compress = interpolation_compress
         self.interpolation_restore = interpolation_restore
-
-        # 결과 부분 경로 prefix, name
-        self.roi_path_prefix = 'roi'
-        self.downscaled_path = 'downscaled'
-        self.config_path = 'config'
 
         # 어차피 output 경로 다르게 할거면 roi, downscaled, config 경로는 그냥 디폴트값으로 통일해도 괜찮을 것 같기도
         # 추후에 폴더가 아니라 새로운 확장자로 저장할거니까 이 점을 고려해도 그냥 위 3개는 디폴트로 하는게 나아보임
         # init 에서 기본적으로 경로, 배율, 모드 등 입력 받기는 하지만, dispatch 통해서 인스턴스 함수의 파라미터로도 설정할 수 있도록 설정(편의성)
+        # 결과 부분 경로 prefix, name
+        self.roi_path_prefix = 'roi'
+        self.downscaled_path = 'downscaled'
+        self.config_path = 'config'
 
         # TODO: 타겟 리스트 추가 -> 타겟 관련은 인스턴스 메서드
         # TODO: 이미지, 결과물 등 경로 -> 경로 관련은 인스턴스 메서드
@@ -166,11 +172,11 @@ class MRS3:
 
 
 
-    @classmethod
-    def select_rectangle_roi(cls, image_path):
+    @staticmethod
+    def select_rectangle_roi(image_path):
         """
         input_path: 추출할 이미지 경로
-        return: roi ndarray, (from_y, to_y, from_x, to_x)
+        return: roi-ndarray, (from_y, to_y, from_x, to_x)
         """
 
         # 이미지 불러오기
@@ -195,47 +201,49 @@ class MRS3:
             cv2.destroyAllWindows()
             print("none")
             return None, None
-    
-    # TODO: 아래 이 2가지는 인스턴스 변수로 놓는게 좋을듯 - 각자의 drawing 여부 및 points
-    # 이에 따라 draw_polygon 과 select_sth_roi 는 인스턴스 메서드로 설정
-    drawing = False
-    points = []
 
-    @classmethod
-    def draw_polygon(cls, event, x, y, flags, param):
+    @staticmethod
+    def draw_polygon(event, x, y, flags, param):
+        global drawing, points
         if event == cv2.EVENT_LBUTTONDOWN:
-            cls.points.append((x, y))
+            points.append((x, y))
         elif event == cv2.EVENT_RBUTTONDOWN and len(points) >= 3:
-            cls.drawing = False  # 다각형 닫기
+            drawing = False  # 다각형 닫기
     
-    @classmethod
-    def select_polygon_roi(cls, image_path):
+    @staticmethod
+    def select_polygon_roi(image_path):
+        """
+        input_path: 추출할 이미지 경로
+        return: roi-ndarray, (from_y, to_y, from_x, to_x)
+        """
+        global drawing, points
+
         img = cv2.imread(image_path)
         clone = img.copy()
         cv2.namedWindow("indicate polygon in img")
-        cv2.setMouseCallback("indicate polygon in img", cls.draw_polygon)
+        cv2.setMouseCallback("indicate polygon in img", MRS3.draw_polygon)
 
-        cls.drawing = True
-        while cls.drawing:
+        drawing = True
+        while drawing:
             temp = clone.copy()
-            if len(cls.points) > 0:
-                cv2.polylines(temp, [np.array(cls.points)], False, (0,255,0), 2)
-                for pt in cls.points:
+            if len(points) > 0:
+                cv2.polylines(temp, [np.array(points)], False, (0,255,0), 2)
+                for pt in points:
                     cv2.circle(temp, pt, 3, (0,0,255), -1)
             cv2.imshow("indicate polygon in img", temp)
             key = cv2.waitKey(1)
             if key == 27:  # ESC로 취소
-                cls.points = []
+                points = []
                 break
-            if key == ord('s') and len(cls.points) >= 3:  # 's'로 저장
-                cls.drawing = False
+            if key == ord('s') and len(points) >= 3:  # 's'로 저장
+                drawing = False
 
-        if len(cls.points) >= 3:
+        if len(points) >= 3:
             mask = np.zeros(img.shape[:2], dtype=np.uint8)
-            cv2.fillPoly(mask, [np.array(cls.points)], 255)
+            cv2.fillPoly(mask, [np.array(points)], 255)
             roi = cv2.bitwise_and(img, img, mask=mask)
             # 다각형의 bounding box로 crop
-            pts = np.array(cls.points)
+            pts = np.array(points)
             x, y, w, h = cv2.boundingRect(pts)
             cropped = roi[y:y+h, x:x+w]
             cv2.imshow("polygon ROI", cropped)
@@ -244,8 +252,8 @@ class MRS3:
             print("3개 이상의 꼭짓점이 필요합니다.")
             return None, None
 
-        cls.drawing = False
-        cls.points = []
+        drawing = False
+        points = []
         cv2.destroyAllWindows()
         return cropped, (y, y+h, x, x+w)
     
@@ -258,8 +266,9 @@ class MRS3:
     # 아니면 그냥 staticmethod 로 처리하는게 나을듯
     # 이미지 압축 없이 그냥 확대하는 용도의 메서드로 외부에서 사용될 수 있도록
     ################################
-    @classmethod
-    def upscale_by_edsr(cls, image_path, scaler):
+
+    @staticmethod
+    def upscale_by_edsr(image_path, scaler):
         img = cv2.imread(image_path)
         if img is None:
             print(f"Error loading image: {image_path}")
@@ -292,8 +301,8 @@ class MRS3:
 
         return result
     
-    @classmethod
-    def upscale_by_resize(cls, image_path, scaler, interpolation = cv2.INTER_CUBIC):
+    @staticmethod
+    def upscale_by_resize(image_path, scaler, interpolation = cv2.INTER_CUBIC):
         img = cv2.imread(image_path)
         if img is None:
             print(f"Error loading image: {image_path}")
@@ -302,8 +311,8 @@ class MRS3:
         result = cv2.resize(img, (w, h), interpolation=interpolation)
         return result
     
-    @classmethod
-    def downscale_img(cls, image_path, scaler, interpolation = cv2.INTER_AREA):
+    @staticmethod
+    def downscale_img(image_path, scaler, interpolation = cv2.INTER_AREA):
         img = cv2.imread(image_path)
         if img is None:
             print(f"Error loading image: {image_path}")
@@ -381,26 +390,27 @@ class MRS3:
         print(f"검은 픽셀 비율: {ratio:.4%}")
         return ratio
 
+    # @staticmethod
     @dispatch()
-    def mrs3_compress(self):
+    def mrs3_compress():
         
         pass
 
     @dispatch(str, str, int, int, int)
     def mrs3_compress(
             self, 
-            img_path, 
-            output_path, 
+            input_path_compress, 
+            output_path_compress, 
             scaler, 
             roi_mode, 
-            interpolation=cv2.INTER_AREA
+            interpolation_compress=cv2.INTER_AREA
         ):
 
-        self.input_path_compress = img_path
-        self.output_path_compress = output_path
+        self.input_path_compress = input_path_compress
+        self.output_path_compress = output_path_compress
         self.scaler = scaler
         self.roi_mode = roi_mode
-        self.interpolation_compress = interpolation
+        self.interpolation_compress = interpolation_compress
 
         pass
 
@@ -422,8 +432,6 @@ class MRS3:
 ####################### 이 위까지가 class 내부 구현 #######################
 
 # mousecallback
-drawing = False
-points = []
 
 def draw_polygon(event, x, y, flags, param):
     global drawing, points
@@ -758,6 +766,8 @@ def mrs3_restore(input_path, mrs3_mode, output_path=""):
 # img_path = 'sample-images-png/1920x1080.png'
 # original_part, original_part_loc = select_polygon_roi(img_path)
 
+def testFunc():
+    print("asdfsdf")
 
 
 # print("interpolation flags")
