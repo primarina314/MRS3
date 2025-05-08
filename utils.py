@@ -105,7 +105,7 @@ class foo:
 
 
 class MRS3:
-    edsr = -1
+    EDSR = -1
     INTER_NEAREST = cv2.INTER_NEAREST
     INTER_LINEAR = cv2.INTER_LINEAR
     INTER_CUBIC = cv2.INTER_CUBIC
@@ -123,12 +123,14 @@ class MRS3:
 
     def __init__(
             self, 
-            img_path = 'Lenna_(test_image).png', 
-            output_path = 'mrs3-output', 
+            input_path_compress = 'Lenna_(test_image).png', 
+            output_path_compress = 'mrs3-output', 
+            input_path_restore = '',
+            output_path_restore = '',
             scaler = 4, 
-            interpolation = INTER_AREA, 
             roi_mode = Polygon, 
-            mrs3_mode = edsr
+            interpolation_compress = INTER_AREA, 
+            interpolation_restore = EDSR
         ):
         
         # f11 전체화면 vsc 로 하면 보기가 훨 편해짐
@@ -136,12 +138,12 @@ class MRS3:
         # 중의성/모호성 해소할 필요있음 - restored, compressed_path 등 기능의 의미가 담기도록 바꾸기.
 
         # 각 인스턴스마다 원하는 이미지 및 경로 설정
-        self.img_path = img_path
-        self.output_path = output_path
+        self.input_path_compress = input_path_compress
+        self.output_path_compress = output_path_compress
         self.scaler = scaler
-        self.interpolation = interpolation
+        self.interpolation_compress = interpolation_compress
         self.roi_mode = roi_mode
-        self.mrs3_mode = mrs3_mode
+        self.interpolation_restore = interpolation_restore
 
         # 결과 부분 경로 prefix, name
         self.roi_path_prefix = 'roi'
@@ -194,6 +196,8 @@ class MRS3:
             print("none")
             return None, None
     
+    # TODO: 아래 이 2가지는 인스턴스 변수로 놓는게 좋을듯 - 각자의 drawing 여부 및 points
+    # 이에 따라 draw_polygon 과 select_sth_roi 는 인스턴스 메서드로 설정
     drawing = False
     points = []
 
@@ -250,6 +254,9 @@ class MRS3:
     # upscale
     # TODO: 메모리 한계 넘어가는 큰 이미지는 분할해서. 분할된 경계가 조금씩 겹치도록 한 후, 여기에도 자연스럽게 blending
     # TODO: 모델 경로 변수로 수정
+    # 클래스 메서드, 인스턴스 메서드끼리도 오버로딩 가능한지 확인필요
+    # 아니면 그냥 staticmethod 로 처리하는게 나을듯
+    # 이미지 압축 없이 그냥 확대하는 용도의 메서드로 외부에서 사용될 수 있도록
     ################################
     @classmethod
     def upscale_by_edsr(cls, image_path, scaler):
@@ -389,11 +396,11 @@ class MRS3:
             interpolation=cv2.INTER_AREA
         ):
 
-        self.img_path = img_path
-        self.output_path = output_path
+        self.input_path_compress = img_path
+        self.output_path_compress = output_path
         self.scaler = scaler
         self.roi_mode = roi_mode
-        self.interpolation = interpolation
+        self.interpolation_compress = interpolation
 
         pass
 
