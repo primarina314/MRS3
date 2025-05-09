@@ -816,6 +816,11 @@ def restore_img_mult_tgs(input_path, mrs3_mode, output_path=""):
                 # TODO: 여기 dist 값이 이상함. 그리고 무엇보다, 계산이 오래 걸림. 병렬처리 필요해보임
                 # 병렬처리 안 되면 걍 seamless 등의 다른 블렌딩 혹은 경계선 따라 블러링 등의 작업
 
+                # CHK: contour 내외부 여부는 계산할 필요없어보임 -> 시간단축
+                # 외부는 upscaled 랑 combined 가 동일한 값을 가지는데 x * a + x * (1-a) = x 이므로.
+
+                # TODO: cv2.distanceTransform 활용해보기
+
     cv2.imshow('restored img', upscaled)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
