@@ -8,6 +8,7 @@ from collections import defaultdict
 from PIL import Image
 import configparser
 from multipledispatch import dispatch
+import interpolation as inter
 
 
 ROI_RECTANGLE = 0
@@ -90,6 +91,10 @@ def _select_polygon_roi(image_path):
     if len(points) >= 3:
         mask = np.zeros(img.shape[:2], dtype=np.uint8)
         cv2.fillPoly(mask, [np.array(points)], 255)
+        cv2.imshow('mask', mask)
+        cv2.waitKey(0)
+        cv2.destroyWindow('mask')
+
         roi = cv2.bitwise_and(img, img, mask=mask)
         # 다각형의 bounding box로 crop
         pts = np.array(points)
@@ -97,6 +102,12 @@ def _select_polygon_roi(image_path):
         cropped = roi[y:y+h, x:x+w]
         cv2.imshow("polygon ROI", cropped)
         cv2.waitKey(0)
+        cropped_mask = mask[y:y+h, x:x+w]
+        cv2.imshow('cropped mask', cropped_mask)
+        cv2.waitKey(0)
+        print(f"cropped target: {cropped.shape}")
+        print(f"cropped mask: {cropped_mask.shape}")
+        
     else:
         print("3개 이상의 꼭짓점이 필요합니다.")
         return None, None
@@ -260,6 +271,7 @@ roi_filename = 'roi' # png
 downscaled_filename = 'downscaled' # png
 config_filename = 'config' # ini
 restored_filename = 'restored' # png
+roi_binary_filename = 'bin' # png
 
 # mrs3 mode, select roi mode
 def compress_img(img_path, output_path, scaler, roi_mode, interpolation=INTER_AREA):
@@ -427,19 +439,19 @@ def _point_line_distance(point, line_start, line_end):
     return dist
 
 
-def _is_point_inside_polygon(point, polygon):
+def _is_point_inside_polygon(point, vertices):
     """
     점이 다각형 내부에 있는지 확인 (Ray casting algorithm)
     point: (x, y) 튜플
-    polygon: 다각형 꼭짓점 좌표 배열 [(x1,y1), (x2,y2), ...]
+    vertices: 다각형 꼭짓점 좌표 배열 [(x1,y1), (x2,y2), ...]
     """
     x, y = point
-    n = len(polygon)
+    n = len(vertices)
     inside = False
     
-    p1x, p1y = polygon[0]
+    p1x, p1y = vertices[0]
     for i in range(n + 1):
-        p2x, p2y = polygon[i % n]
+        p2x, p2y = vertices[i % n]
         if y > min(p1y, p2y):
             if y <= max(p1y, p2y):
                 if x <= max(p1x, p2x):
@@ -517,7 +529,23 @@ def distance_to_polygon_edge_from_contours(contours, point):
                 min_dist = dist
     return min_dist if inside else -min_dist
 
+def distance_to_polygon_edge_temp(vertices, point):
+    """
+    polygon: contour 꼭짓점 ndarray. Shape 은 (꼭짓점 개수, 2)
+    point: (x, y) 튜플
+    """
+    # 점이 다각형 내부에 있는지 확인
+    inside = _is_point_inside_polygon(point, vertices)
 
+    min_dist = float('inf')
+    n = len(vertices)
+    for i in range(n):
+        start = tuple(vertices[i])
+        end = tuple(vertices[(i + 1) % n])
+        dist = _point_line_distance(point, start, end)
+        if dist < min_dist:
+            min_dist = dist
+    return min_dist if inside else -min_dist
 
 """
 필요한거
@@ -557,56 +585,248 @@ https://docs.opencv.org/3.4/d8/d6a/group__imgcodecs__flags.html
 TODO: 다수 타겟 지정(다각형) 및 바이너리 이미지로 저장
 
 """
-def _draw_multiple_polygon(event, x, y, flags, param):
-    global drawing, points
-    if event == cv2.EVENT_LBUTTONDOWN:
-        points.append((x, y))
-    elif event == cv2.EVENT_RBUTTONDOWN and len(points) >= 3:
-        drawing = False  # 다각형 닫기
 
-# TODO: 임의의 수의 타겟 지정 및 저장
-# 우클릭으로 하나씩 저장
-# s 눌러서 완료 및 확인
+# 하나의 점 집합/리스트에 대해 수행 중인지, 아니면 클릭시 새로운 집합을 만들어야 하는지에 대한 여부를 담은 bool 변수 필요
+# 또는 완료된 점 집합 개수에 대한 변수 -> points 리스트의 길이와 비교해서 새로 만들지, 그대로 진행할지
+multiple_points = []
+
+roi_contours = []
+roi_contour_num = 0
+
+# len(contours) == contour_num -> 새로 추가
+# len(contours) > contour_num -> 마지막 요소(contour_num번쨰 index)에 그대로 추가
+
+def _draw_multiple_polygon(event, x, y, flags, param):
+    global roi_contours, roi_contour_num
+    if event == cv2.EVENT_LBUTTONDOWN:
+        if len(roi_contours) == roi_contour_num:
+            roi_contours.append([])
+        roi_contours[roi_contour_num].append((x, y))
+    elif event == cv2.EVENT_RBUTTONDOWN and roi_contours and len(roi_contours)!=roi_contour_num and len(roi_contours[-1]) >= 3:
+        roi_contour_num += 1
+
 
 def _select_multiple_polygon_roi(image_path):
-    global drawing, points
+
+    """
+    타겟 다중 선택
+    우클릭으로 다음 타겟으로 넘어가고, s키 눌러서 최종 저장
+    리턴: (타겟 원본 부분 ndarray, 타겟 바이너리 mask, (y, y+h, x, x+w)) 튜플
+    """
+    global drawing, roi_contours, roi_contour_num
     img = cv2.imread(image_path)
     clone = img.copy()
     cv2.namedWindow("indicate polygon in img")
     cv2.setMouseCallback("indicate polygon in img", _draw_multiple_polygon)
 
     drawing = True
+    roi_contours = []
+    roi_contour_num = 0
     while drawing:
         temp = clone.copy()
-        if len(points) > 0:
-            cv2.polylines(temp, [np.array(points)], False, (0,255,0), 2)
-            for pt in points:
-                cv2.circle(temp, pt, 3, (0,0,255), -1)
+
+        for i in range(len(roi_contours)):
+            points = roi_contours[i]
+            if len(points) > 0:
+                cv2.polylines(temp, [np.array(points)], i < roi_contour_num, (0,255,0), 2)
+                for pt in points:
+                    cv2.circle(temp, pt, 3, (0,0,255), -1)
         cv2.imshow("indicate polygon in img", temp)
+
         key = cv2.waitKey(1)
         if key == 27:  # ESC로 취소
-            points = []
+            roi_contours = []
+            drawing = False
             break
-        if key == ord('s') and len(points) >= 3:  # 's'로 저장
+        if key == ord('s') and roi_contours and len(roi_contours[-1]) >= 3:  # 's'로 저장
             drawing = False
 
-    if len(points) >= 3:
-        mask = np.zeros(img.shape[:2], dtype=np.uint8)
-        cv2.fillPoly(mask, [np.array(points)], 255)
-        roi = cv2.bitwise_and(img, img, mask=mask)
-        # 다각형의 bounding box로 crop
-        pts = np.array(points)
-        x, y, w, h = cv2.boundingRect(pts)
-        cropped = roi[y:y+h, x:x+w]
-        cv2.imshow("polygon ROI", cropped)
-        cv2.waitKey(0)
-    else:
-        print("3개 이상의 꼭짓점이 필요합니다.")
-        return None, None
+    result = []
+    for i in range(len(roi_contours)):
+        points = roi_contours[i]
+
+        if len(points) >= 3:
+            mask = np.zeros(img.shape[:2], dtype=np.uint8)
+            cv2.fillPoly(mask, [np.array(points)], 255)
+            roi = cv2.bitwise_and(img, img, mask=mask)
+            # 다각형의 bounding box로 crop
+            pts = np.array(points)
+            x, y, w, h = cv2.boundingRect(pts)
+            cropped = roi[y:y+h, x:x+w]
+            cropped_mask = mask[y:y+h, x:x+w]
+
+            result.append((cropped, cropped_mask, (y, y+h, x, x+w)))
+            cv2.imshow(f"polygon ROI {i}", cropped)
+            cv2.waitKey(0)
+            cv2.destroyWindow(f"polygon ROI {i}")
+        else:
+            print("3개 이상의 꼭짓점이 필요합니다.")
+            return None
 
     drawing = False
-    points = []
+    roi_contours = []
     cv2.destroyAllWindows()
-    return cropped, (y, y+h, x, x+w)
+    return result
 
 
+# mrs3 mode, select roi mode
+"""
+multiple targets
+테스트용
+내부 구조에서 여러 타겟 리스트로 loc, ndarray 저장 필요함
+TODO: 현재는 poly 만 multiple targets -> 이후에 rect 및 curves 도 도입
+"""
+def compress_img_mult_tgs(img_path, output_path, scaler, roi_mode, interpolation=INTER_AREA):
+    """
+    img_path: mrs3 적용할 이미지 경로
+    output_path: 결과 저장할 폴더 경로
+    scaler: 이미지 downscaling 배율
+    roi_mode: 타겟 설정 방식(직사각형, 다각형, 곡선)
+    interpolation: downscale 시에 사용할 interpolation
+    """
+
+    img = cv2.imread(img_path)
+    
+    if img is None:
+        print(f"Error loading image: {img_path}")
+        return
+    
+    targets = _select_multiple_polygon_roi(img_path)
+
+    # TODO: 다양한 interpolation 비교 및 복원 비교
+    downscaled = _downscale_img(img_path, scaler, interpolation=interpolation)
+
+    # 메타데이터 ini 에 저장
+    config = configparser.ConfigParser()
+    config['DEFAULT'] = {
+        'SCALER': f'{scaler}',
+        'NUMBER_OF_TARGETS': f'{len(targets)}'
+    }
+
+    # 각 타겟 위치정보 저장
+    for i in range(len(targets)):
+        config[f'{i}'] = {
+            'Y_FROM': f'{targets[i][2][0]}',
+            'Y_TO': f'{targets[i][2][1]}',
+            'X_FROM': f'{targets[i][2][2]}',
+            'X_TO': f'{targets[i][2][3]}'
+        }
+
+    # 결과저장 폴더 없을 때 새로 생성
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+
+    # 축소 downscaled 이미지 저장
+    cv2.imwrite(f'{output_path}/{downscaled_filename}.png', downscaled, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+
+    # 타겟 하나씩 순차저장(원본 부분 이미지, 영역 바이너리 이미지)
+    for i in range(len(targets)):
+        cv2.imwrite(f'{output_path}/{roi_filename}{i}.png', targets[i][0], [cv2.IMWRITE_PNG_COMPRESSION, 9])
+        cv2.imwrite(f'{output_path}/{roi_binary_filename}{i}.png', targets[i][1], [cv2.IMWRITE_PNG_COMPRESSION, 9, cv2.IMWRITE_PNG_BILEVEL, 1])
+
+    with open(f'{output_path}/{config_filename}.ini', 'w') as configfile:
+        config.write(configfile)
+
+    # 압축률 계산
+    filesize_bef = os.path.getsize(img_path)
+    filesize_downscaled = os.path.getsize(f'{output_path}/{downscaled_filename}.png')
+    filesize_roi = 0
+    filesize_roi_bin = 0
+    for i in range(len(targets)):
+        filesize_roi += os.path.getsize(f'{output_path}/{roi_filename}{i}.png')
+        filesize_roi_bin += os.path.getsize(f'{output_path}/{roi_binary_filename}{i}.png')
+    filesize_config = os.path.getsize(f'{output_path}/{config_filename}.ini')
+
+    print(f'original file: {filesize_bef}')
+    print(f'downscaled filesize: {filesize_downscaled}')
+    print(f'roi filesize: {filesize_roi}')
+    print(f'roi bin filesize: {filesize_roi_bin}')
+    print(f'config filesize: {filesize_config}')
+
+    # 파일 사이즈 압축률 print
+    print(f'compression ratio: {(filesize_downscaled + filesize_roi + filesize_roi_bin + filesize_config) / filesize_bef}')
+    return
+
+
+blending_threshold = 15
+
+def restore_img_mult_tgs(input_path, mrs3_mode, output_path=""):
+    """
+    mrs3 처리한 후, 이미지 복원
+    input_path: mrs3 적용한 폴더 경로 - 나중에 폴더말고 하나의 파일형식에 저장하도록 수정하는게 좋을듯.
+    """
+
+    if not os.path.exists(f'{input_path}/{downscaled_filename}.png'):
+        print(f"Error loading image: {input_path}/{downscaled_filename}.png")
+        return
+
+    if not os.path.exists(f'{input_path}/{config_filename}.ini'):
+        print(f'Error loading config: {input_path}/{config_filename}.ini')
+        return
+    
+    if not os.path.exists(f'{input_path}/{roi_filename}{0}.png'):
+        print(f'Error loading image: {input_path}/{roi_filename}{0}.png')
+        return
+
+    config = configparser.ConfigParser()
+    config.read(f'{input_path}/{config_filename}.ini')
+
+    target_num = int(config['DEFAULT']['NUMBER_OF_TARGETS'])
+    scaler = int(config['DEFAULT']['SCALER'])
+
+    if mrs3_mode == EDSR:
+        upscaled = _upscale_by_edsr(f'{input_path}/{downscaled_filename}.png', scaler=scaler)
+    else:
+        upscaled = _upscale_by_resize(f'{input_path}/{downscaled_filename}.png', scaler=scaler, interpolation=mrs3_mode)
+    restored = upscaled.copy()
+
+    for i in range(target_num):
+        y_from, y_to, x_from, x_to = int(config[f'{i}']['Y_FROM']), int(config[f'{i}']['Y_TO']), int(config[f'{i}']['X_FROM']), int(config[f'{i}']['X_TO'])
+        roi = cv2.imread(f'{input_path}/{roi_filename}{i}.png')
+        roi_mask = cv2.imread(f'{input_path}/{roi_binary_filename}{i}.png')
+
+        bool_roi_mask_3ch = roi_mask > 0
+        bool_roi_mask_1ch = np.all(roi_mask != [0, 0, 0], axis=2)
+        bin_roi_mask = bool_roi_mask_1ch.astype(np.uint8) * 255
+
+        # 바이너리 이미지 흰 영역은 원본 부분 선택, 검은 부분은 upscaled 된 부분 선택
+        combined_roi = np.where(bool_roi_mask_3ch, roi, upscaled[y_from:y_to, x_from:x_to])
+        restored[y_from:y_to, x_from:x_to] = combined_roi
+
+        contours, _ = cv2.findContours(bin_roi_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            continue
+
+        vertices = contours[0].reshape(-1, 2)
+
+        # TODO: 이미지 블렌딩. 타겟 경계 거리에 따라 smooth 하게 interpolation
+        print(f'{y_from}, {y_to}, {x_from}, {x_to}')
+        for _y in range(y_from, y_to+1):
+            for _x in range(x_from, x_to+1):
+                # print(f'{_y}, {_x}')
+                dist = distance_to_polygon_edge_temp(vertices, (_x, _y))
+                print(dist)
+                if dist < 0 or dist >= blending_threshold:
+                    continue
+                # TODO: dist 에 따라 블렌딩 작없
+                # 알파블렌딩의 경우 interpolation 함수들 이용
+                # 알파블렌딩 장점: 경계에서 일정거리 떨어진 내부는 완전하게 원본과 동일하다
+                alpha = inter.hermit_3(dist, 0, blending_threshold)
+                restored[_y][_x] = alpha * restored[_y][_x] + (1-alpha) * upscaled[_y][_x]
+                # TODO: 여기 dist 값이 이상함. 그리고 무엇보다, 계산이 오래 걸림. 병렬처리 필요해보임
+                # 병렬처리 안 되면 걍 seamless 등의 다른 블렌딩 혹은 경계선 따라 블러링 등의 작업
+
+    cv2.imshow('restored img', upscaled)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    # 폴더 설정 안 하면 현재 폴더에 바로 이미지 생성
+    if output_path == "":
+        cv2.imwrite(f'{restored_filename}.png', upscaled)
+        return
+
+    # 결과저장 폴더 없을 때 새로 생성
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+    cv2.imwrite(f'{output_path}/{restored_filename}.png', upscaled, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+    return
