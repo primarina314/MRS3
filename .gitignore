@@ -1,0 +1,4 @@
+models/goturn/goturn.caffemodel
+models/yolov8x.pt
+*.pyc
+__pycache__/
