@@ -881,5 +881,5 @@ def restore_img_mult_tgs(input_path, mrs3_mode, output_path=""):
     # 결과저장 폴더 없을 때 새로 생성
     if not os.path.exists(output_path):
         os.makedirs(output_path)
-    cv2.imwrite(f'{output_path}/{restored_filename}.png', restored, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+    cv2.imwrite(f'{output_path}/{restored_filename}.png', restored) # [cv2.IMWRITE_PNG_COMPRESSION, 9]
     return
