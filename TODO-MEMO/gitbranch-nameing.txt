@@ -39,3 +39,5 @@ Jira, GitHub Issues 등과 연동 시 티켓 번호를 포함해 추적성 강�
 필요하다면 작성자 이름, 작업 범위 등을 추가할 수 있음
 
 예시: johndoe/feature/add-user-profile
+
+git log --all --decorate --oneline --graph
