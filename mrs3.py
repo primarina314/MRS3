@@ -30,6 +30,10 @@ WARP_RELATIVE_MAP = cv2.WARP_RELATIVE_MAP
 drawing = False
 points = []
 
+t1 = 0
+t2 = 0
+t3 = 0
+
 def _select_rectangle_roi(image_path):
     """
     input_path: 추출할 이미지 경로
@@ -530,13 +534,18 @@ def distance_to_polygon_edge_from_contours(contours, point):
     return min_dist if inside else -min_dist
 
 def distance_to_polygon_edge_temp(vertices, point):
+    global t1, t2, t3
     """
     polygon: contour 꼭짓점 ndarray. Shape 은 (꼭짓점 개수, 2)
     point: (x, y) 튜플
     """
     # 점이 다각형 내부에 있는지 확인
+    t_i = time.time()
     inside = _is_point_inside_polygon(point, vertices)
+    t_f = time.time()
+    t1 += t_f - t_i
 
+    t_i = time.time()
     min_dist = float('inf')
     n = len(vertices)
     for i in range(n):
@@ -545,6 +554,8 @@ def distance_to_polygon_edge_temp(vertices, point):
         dist = _point_line_distance(point, start, end)
         if dist < min_dist:
             min_dist = dist
+    t_f = time.time()
+    t2 += t_f - t_i
     return min_dist if inside else -min_dist
 
 """
@@ -747,10 +758,69 @@ def compress_img_mult_tgs(img_path, output_path, scaler, roi_mode, interpolation
     print(f'compression ratio: {(filesize_downscaled + filesize_roi + filesize_roi_bin + filesize_config) / filesize_bef}')
     return
 
+BLEND_LINEAR = 0
+BLEND_HERMIT_3 = 1
+BLEND_HERMIT_5 = 2
+BLEND_SINUSOIDAL = 3
+BLEND_STEP = 4
 
-blending_threshold = 15
+_DIST_CRIT_COEF = .4
+
+def blend_images_with_contour_distance(A, B, contour, blend=BLEND_SINUSOIDAL):
+    """
+    A, B: 두 이미지 (같은 크기, 3채널, uint8)
+    contour: 다각형 외곽선 (Nx1x2 형태의 numpy 배열)
+    blend: 알파블렌딩 가중치 보간방식
+    
+    contour 외부는 A로 채우고, contour 내부는 contour로부터의 거리 기반 알파 블렌딩
+    """
+    # 이미지 크기
+    h, w = A.shape[:2]
+    
+    # 빈 마스크 생성 (contour 내부 255, 외부 0)
+    mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.drawContours(mask, [contour], -1, 255, thickness=-1)
+    
+    # contour 내부 픽셀에 대해 거리 변환 (contour 경계까지 거리)
+    dist_transform = cv2.distanceTransform(mask, distanceType=cv2.DIST_L2, maskSize=3)
+    # 이미지 크기에 따라 max_distance(블렌딩 두께) 다르게 설정
+    max_distance = np.max(dist_transform) * _DIST_CRIT_COEF
+    # 거리 임계값 이상인 부분은 B만 사용
+    # 거리 임계값 이하인 부분은 거리 비례 가중치 계산
+    
+    # 거리 최대값으로 정규화 (0~1)
+    if blend == BLEND_LINEAR:
+        alpha = inter.np_linear(1 - dist_transform / max_distance, 0, 1)
+    elif blend == BLEND_HERMIT_3:
+        alpha = inter.np_hermit_3(1 - dist_transform / max_distance, 0, 1)
+    elif blend == BLEND_HERMIT_5:
+        alpha = inter.np_hermit_5(1 - dist_transform / max_distance, 0, 1)
+    elif blend == BLEND_SINUSOIDAL:
+        alpha = inter.np_sinusoidal(1 - dist_transform / max_distance, 0, 1)
+    elif blend == BLEND_STEP:
+        alpha = inter.np_unit_step(1 - dist_transform / max_distance, 0, 1)
+    else:
+        print("No such blend option")
+        return None
+    
+    # contour 외부는 alpha=1 (A만 사용)
+    alpha[mask == 0] = 1
+    
+    # alpha는 A의 가중치, (1-alpha)는 B의 가중치
+    alpha_3ch = np.repeat(alpha[:, :, np.newaxis], 3, axis=2)
+    
+    # float32로 변환하여 가중치 곱셈
+    A_f = A.astype(np.float32)
+    B_f = B.astype(np.float32)
+    
+    blended = A_f * alpha_3ch + B_f * (1 - alpha_3ch)
+    blended = np.clip(blended, 0, 255).astype(np.uint8)
+    
+    return blended
 
 def restore_img_mult_tgs(input_path, mrs3_mode, output_path=""):
+    global t1, t2, t3
+    t1 = t2 = t3 = 0
     """
     mrs3 처리한 후, 이미지 복원
     input_path: mrs3 적용한 폴더 경로 - 나중에 폴더말고 하나의 파일형식에 저장하도록 수정하는게 좋을듯.
@@ -797,41 +867,19 @@ def restore_img_mult_tgs(input_path, mrs3_mode, output_path=""):
         if not contours:
             continue
 
-        vertices = contours[0].reshape(-1, 2)
+        restored[y_from:y_to, x_from:x_to] = blend_images_with_contour_distance(upscaled[y_from:y_to, x_from:x_to], restored[y_from:y_to, x_from:x_to], contours[0], blend=BLEND_SINUSOIDAL)
 
-        # TODO: 이미지 블렌딩. 타겟 경계 거리에 따라 smooth 하게 interpolation
-        print(f'{y_from}, {y_to}, {x_from}, {x_to}')
-        for _y in range(y_from, y_to+1):
-            for _x in range(x_from, x_to+1):
-                # print(f'{_y}, {_x}')
-                dist = distance_to_polygon_edge_temp(vertices, (_x, _y))
-                print(dist)
-                if dist < 0 or dist >= blending_threshold:
-                    continue
-                # TODO: dist 에 따라 블렌딩 작없
-                # 알파블렌딩의 경우 interpolation 함수들 이용
-                # 알파블렌딩 장점: 경계에서 일정거리 떨어진 내부는 완전하게 원본과 동일하다
-                alpha = inter.hermit_3(dist, 0, blending_threshold)
-                restored[_y][_x] = alpha * restored[_y][_x] + (1-alpha) * upscaled[_y][_x]
-                # TODO: 여기 dist 값이 이상함. 그리고 무엇보다, 계산이 오래 걸림. 병렬처리 필요해보임
-                # 병렬처리 안 되면 걍 seamless 등의 다른 블렌딩 혹은 경계선 따라 블러링 등의 작업
-
-                # CHK: contour 내외부 여부는 계산할 필요없어보임 -> 시간단축
-                # 외부는 upscaled 랑 combined 가 동일한 값을 가지는데 x * a + x * (1-a) = x 이므로.
-
-                # TODO: cv2.distanceTransform 활용해보기
-
-    cv2.imshow('restored img', upscaled)
+    cv2.imshow('restored img', restored)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
     # 폴더 설정 안 하면 현재 폴더에 바로 이미지 생성
     if output_path == "":
-        cv2.imwrite(f'{restored_filename}.png', upscaled)
+        cv2.imwrite(f'{restored_filename}.png', restored)
         return
 
     # 결과저장 폴더 없을 때 새로 생성
     if not os.path.exists(output_path):
         os.makedirs(output_path)
-    cv2.imwrite(f'{output_path}/{restored_filename}.png', upscaled, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+    cv2.imwrite(f'{output_path}/{restored_filename}.png', restored, [cv2.IMWRITE_PNG_COMPRESSION, 9])
     return
