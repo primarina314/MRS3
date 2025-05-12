@@ -131,6 +131,7 @@ def _select_polygon_roi(image_path):
 ################################
 
 def _upscale_by_edsr(image_path, scaler):
+    t1 = time.time()
     img = cv2.imread(image_path)
     if img is None:
         print(f"Error loading image: {image_path}")
@@ -160,7 +161,8 @@ def _upscale_by_edsr(image_path, scaler):
     except Exception as e:
         print(f"Error during upscaling: {e}")
         return None
-
+    t2 = time.time()
+    print(f'{t2-t1} sec taken')
     return result
 
 def _upscale_by_resize(image_path, scaler, interpolation = cv2.INTER_CUBIC):
@@ -471,7 +473,7 @@ def _is_point_inside_polygon(point, vertices):
 
 
 
-def distance_to_polygon_edge_from_mask(mask, point):
+def _distance_to_polygon_edge_from_mask(mask, point):
     """
     mask: 2D numpy array, 다각형 영역이 1(또는 255), 배경이 0인 바이너리 마스크
     point: (x, y) 튜플, 기준점 좌표
@@ -505,7 +507,7 @@ def distance_to_polygon_edge_from_mask(mask, point):
 
     return min_dist if inside else -min_dist
 
-def distance_to_polygon_edge_from_contours(contours, point):
+def _distance_to_polygon_edge_from_contours(contours, point):
     """
     point: (x, y) 튜플, 기준점 좌표
     contours: contours 튜플(vertices). cv2.findContours 의 0번째 컴포넌트
@@ -533,7 +535,7 @@ def distance_to_polygon_edge_from_contours(contours, point):
                 min_dist = dist
     return min_dist if inside else -min_dist
 
-def distance_to_polygon_edge_temp(vertices, point):
+def _distance_to_polygon_edge_temp(vertices, point):
     global t1, t2, t3
     """
     polygon: contour 꼭짓점 ndarray. Shape 은 (꼭짓점 개수, 2)
@@ -766,7 +768,7 @@ BLEND_STEP = 4
 
 _DIST_CRIT_COEF = .4
 
-def blend_images_with_contour_distance(A, B, contour, blend=BLEND_SINUSOIDAL):
+def _blend_images_with_contour_distance(A, B, contour, blend=BLEND_SINUSOIDAL):
     """
     A, B: 두 이미지 (같은 크기, 3채널, uint8)
     contour: 다각형 외곽선 (Nx1x2 형태의 numpy 배열)
@@ -867,7 +869,7 @@ def restore_img_mult_tgs(input_path, mrs3_mode, output_path=""):
         if not contours:
             continue
 
-        restored[y_from:y_to, x_from:x_to] = blend_images_with_contour_distance(upscaled[y_from:y_to, x_from:x_to], restored[y_from:y_to, x_from:x_to], contours[0], blend=BLEND_SINUSOIDAL)
+        restored[y_from:y_to, x_from:x_to] = _blend_images_with_contour_distance(upscaled[y_from:y_to, x_from:x_to], restored[y_from:y_to, x_from:x_to], contours[0], blend=BLEND_SINUSOIDAL)
 
     cv2.imshow('restored img', restored)
     cv2.waitKey(0)
@@ -883,3 +885,122 @@ def restore_img_mult_tgs(input_path, mrs3_mode, output_path=""):
         os.makedirs(output_path)
     cv2.imwrite(f'{output_path}/{restored_filename}.png', restored) # [cv2.IMWRITE_PNG_COMPRESSION, 9]
     return
+
+
+# 용량이 큰 이미지 분할해서 upscaling 할 수 있도록 구현
+# 분할된 부분이 겹치도록 - 겹친 후에 블렌딩으로 자연스럽게
+
+PIXELS_LIMIT = 281000
+OVERLAP_HALF_LENGTH = 20
+
+_upscaled_fraction_num = 0
+def _upscale_img(img, scaler):
+    """
+    img: 이미지 ndarray
+    scaler: 배율(2 or 3 or 4)
+    """
+    if scaler not in [2, 3, 4]:
+        print(f"Invalid scaler value: {scaler}. Must be 2, 3 or 4.")
+        return None
+    if not cv2.cuda.getCudaEnabledDeviceCount():
+        print("No CUDA-enabled GPU found.")
+        return None
+
+    sr = cv2.dnn_superres.DnnSuperResImpl_create()
+    try:
+        sr.readModel(f'models/EDSR_x{scaler}.pb')
+    except Exception as e:
+        print(f"Error reading model: {e}")
+        return None
+
+    # gpu acceleration
+    sr.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+    sr.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+
+    sr.setModel('edsr', scaler)
+
+    try:
+        result = sr.upsample(img)
+    except Exception as e:
+        print(f"Error during upscaling: {e}")
+        return None
+    global _upscaled_fraction_num
+    _upscaled_fraction_num += 1
+    return result
+
+def _upscale_large_img_helper(img, scaler):
+    if scaler not in [2, 3, 4]:
+        print(f"Invalid scaler value: {scaler}. Must be 2, 3 or 4.")
+        return None
+    if not cv2.cuda.getCudaEnabledDeviceCount():
+        print("No CUDA-enabled GPU found.")
+        return None
+    
+    h, w, c = img.shape
+    if h * w < PIXELS_LIMIT:
+        return _upscale_img(img, scaler)
+    
+    if w < h:
+        upper = np.zeros((scaler*h, scaler*w, c))
+        below = np.zeros((scaler*h, scaler*w, c))
+
+        upper[0:scaler*(h//2 + OVERLAP_HALF_LENGTH),:] = _upscale_large_img_helper(img[0:(h//2 + OVERLAP_HALF_LENGTH),:], scaler=scaler)
+        below[scaler*(h//2 - OVERLAP_HALF_LENGTH):scaler*h,:] = _upscale_large_img_helper(img[(h//2 - OVERLAP_HALF_LENGTH):h,:], scaler=scaler)
+
+        # h//2 - OVERLAP_HALF_LENGTH ~ h//2 + OVERLAP_HALF_LENGTH
+        alpha = np.ones((scaler*h, scaler*w)) * np.arange(scaler * h).reshape(-1, 1)
+        start = scaler * (h//2 - OVERLAP_HALF_LENGTH)
+        end = scaler * (h//2 + OVERLAP_HALF_LENGTH)
+        alpha = np.clip((alpha - start) / (end - start), 0, 1)
+
+        alpha_3ch = np.repeat(alpha[:, :, np.newaxis], 3, axis=2)
+
+        upper_f = upper.astype(np.float32)
+        below_f = below.astype(np.float32)
+
+        blended = upper_f * (1-alpha_3ch) + below_f * alpha_3ch
+        blended = np.clip(blended, 0, 255).astype(np.uint8)
+        return blended
+    
+    else:
+        left = np.zeros((scaler*h, scaler*w, c))
+        right = np.zeros((scaler*h, scaler*w, c))
+        
+        left[:,0:scaler*(w//2 + OVERLAP_HALF_LENGTH)] = _upscale_large_img_helper(img[:,0:(w//2 + OVERLAP_HALF_LENGTH)], scaler=scaler)
+        right[:,scaler*(w//2 - OVERLAP_HALF_LENGTH):scaler*w] = _upscale_large_img_helper(img[:,(w//2 - OVERLAP_HALF_LENGTH):w], scaler=scaler)
+
+        # w//2 - OVERLAP_HALF_LENGTH ~ w//2 + OVERLAP_HALF_LENGTH
+        alpha = np.ones((scaler*h, scaler*w)) * np.arange(scaler * w).reshape(1, -1)
+        start = scaler * (w//2 - OVERLAP_HALF_LENGTH)
+        end = scaler * (w//2 + OVERLAP_HALF_LENGTH)
+        alpha = np.clip((alpha - start) / (end - start), 0, 1)
+        
+        alpha_3ch = np.repeat(alpha[:, :, np.newaxis], 3, axis=2)
+        
+        left_f = left.astype(np.float32)
+        right_f = right.astype(np.float32)
+
+        blended = left_f * (1-alpha_3ch) + right_f * alpha_3ch
+        blended = np.clip(blended, 0, 255).astype(np.uint8)
+        return blended
+
+def upscale_large_img(img, scaler):
+    """
+    img: 이미지 ndarray
+    scaler: 배율(2 or 3 or 4)
+    """
+    global _upscaled_fraction_num
+    _upscaled_fraction_num = 0
+
+    t1 = time.time()
+    result = _upscale_large_img_helper(img, scaler=scaler)
+    if _upscaled_fraction_num > 1:
+        print(f'upscaled after being divided into {_upscaled_fraction_num} fragments.')
+    else:
+        print(f'upscaled without fraction')
+    t2 = time.time()
+    print(f'{t2-t1} sec taken')
+    _upscaled_fraction_num = 0
+    return result
+
+
