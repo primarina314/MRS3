@@ -1,20 +1,18 @@
-import tensorflow as tf
 import numpy as np
 import cv2
 import time
 import os
-from enum import Enum
-import keras_cv
-import keras
-import matplotlib.pyplot as plt
 from multipledispatch import dispatch
 import mrs3 as mr
 import interpolation as inter
 
-
+import torch
+import torch.nn as nn
 import nvidia.dali as dali
 from nvidia.dali import pipeline_def
 import nvidia.dali.fn as fn
+from nvidia.dali.plugin.pytorch import DALIGenericIterator
+
 
 @pipeline_def
 def video_super_res_pipe(filenames, sequence_length, skip_vframes, step):
@@ -31,6 +29,24 @@ def video_super_res_pipe(filenames, sequence_length, skip_vframes, step):
     lr_frames = fn.resize(videos, resize_x=256, resize_y=256)
     
     return lr_frames, videos  # LR 및 HR 프레임 반환
+
+
+@pipeline_def
+def video_super_res_pipeline(files, sequence_length):
+    # 비디오 로드 및 디코딩 (GPU 가속)
+    videos = fn.readers.video(
+        device="gpu",
+        filenames=files,
+        sequence_length=sequence_length,
+        shard_id=0,
+        num_shards=1
+    )
+    
+    # 저해상도 버전 생성 (다운샘플링)
+    lr_frames = fn.resize(videos, resize_x=256, resize_y=256)
+    
+    # 원본 프레임은 고해상도 타겟으로 사용
+    return lr_frames, videos
 
 
 # TODO: torch 설치(버전 확인 후 설치)
