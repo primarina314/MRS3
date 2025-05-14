@@ -49,8 +49,6 @@ def video_super_res_pipeline(files, sequence_length):
     return lr_frames, videos
 
 
-# TODO: torch 설치(버전 확인 후 설치)
-
 # TODO: MIA-VSR, EDVR 등 pretrained 모델 가져와서 테스트
 # TODO: DEEPSORT, YOLO 활용 추적
 # TODO: ESPCN, FSRCNN, LapSRN - 한 프레임(이미지) 적용 모델 알아보고 비교해보기 - 또는 비교하여 선택할 수 있도록 옵션

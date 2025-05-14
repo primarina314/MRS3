@@ -6,6 +6,7 @@ from collections import defaultdict
 from PIL import Image
 import configparser
 import interpolation as inter
+import gc
 
 
 ROI_RECTANGLE = 0
@@ -886,16 +887,62 @@ def restore_img_mult_tgs(input_path, mrs3_mode, output_path=""):
 
 # 용량이 큰 이미지 분할해서 upscaling 할 수 있도록 구현
 # 분할된 부분이 겹치도록 - 겹친 후에 블렌딩으로 자연스럽게
-
 PIXELS_LIMIT = 281000
 OVERLAP_HALF_LENGTH = 20
 
-_upscaled_fraction_num = 0
-def _upscale_img(img, scaler):
-    """
-    img: 이미지 ndarray
-    scaler: 배율(2 or 3 or 4)
-    """
+def upscale_large_img(img, scaler):
+    upsampled_fraction_num = 0
+    
+    def upscale_img(_img):
+        nonlocal upsampled_fraction_num
+        h, w, c = _img.shape
+        if h * w < PIXELS_LIMIT:
+            upsampled_fraction_num += 1
+            return sr.upsample(_img)
+        
+        if w < h:
+            upper = np.zeros((scaler*h, scaler*w, c))
+            below = np.zeros((scaler*h, scaler*w, c))
+
+            upper[0:scaler*(h//2 + OVERLAP_HALF_LENGTH),:] = upscale_img(_img[0:(h//2 + OVERLAP_HALF_LENGTH),:])
+            below[scaler*(h//2 - OVERLAP_HALF_LENGTH):scaler*h,:] = upscale_img(_img[(h//2 - OVERLAP_HALF_LENGTH):h,:])
+
+            # h//2 - OVERLAP_HALF_LENGTH ~ h//2 + OVERLAP_HALF_LENGTH
+            alpha = np.ones((scaler*h, scaler*w)) * np.arange(scaler * h).reshape(-1, 1)
+            start = scaler * (h//2 - OVERLAP_HALF_LENGTH)
+            end = scaler * (h//2 + OVERLAP_HALF_LENGTH)
+            alpha = np.clip((alpha - start) / (end - start), 0, 1)
+
+            alpha_3ch = np.repeat(alpha[:, :, np.newaxis], 3, axis=2)
+
+            upper_f = upper.astype(np.float32)
+            below_f = below.astype(np.float32)
+
+            blended = upper_f * (1-alpha_3ch) + below_f * alpha_3ch
+            blended = np.clip(blended, 0, 255).astype(np.uint8)
+            return blended
+        else:
+            left = np.zeros((scaler*h, scaler*w, c))
+            right = np.zeros((scaler*h, scaler*w, c))
+            
+            left[:,0:scaler*(w//2 + OVERLAP_HALF_LENGTH)] = upscale_img(_img[:,0:(w//2 + OVERLAP_HALF_LENGTH)])
+            right[:,scaler*(w//2 - OVERLAP_HALF_LENGTH):scaler*w] = upscale_img(_img[:,(w//2 - OVERLAP_HALF_LENGTH):w])
+
+            # w//2 - OVERLAP_HALF_LENGTH ~ w//2 + OVERLAP_HALF_LENGTH
+            alpha = np.ones((scaler*h, scaler*w)) * np.arange(scaler * w).reshape(1, -1)
+            start = scaler * (w//2 - OVERLAP_HALF_LENGTH)
+            end = scaler * (w//2 + OVERLAP_HALF_LENGTH)
+            alpha = np.clip((alpha - start) / (end - start), 0, 1)
+            
+            alpha_3ch = np.repeat(alpha[:, :, np.newaxis], 3, axis=2)
+            
+            left_f = left.astype(np.float32)
+            right_f = right.astype(np.float32)
+
+            blended = left_f * (1-alpha_3ch) + right_f * alpha_3ch
+            blended = np.clip(blended, 0, 255).astype(np.uint8)
+            return blended
+        
     if scaler not in [2, 3, 4]:
         print(f"Invalid scaler value: {scaler}. Must be 2, 3 or 4.")
         return None
@@ -916,88 +963,22 @@ def _upscale_img(img, scaler):
 
     sr.setModel('edsr', scaler)
 
-    try:
-        result = sr.upsample(img)
-    except Exception as e:
-        print(f"Error during upscaling: {e}")
-        return None
-    global _upscaled_fraction_num
-    _upscaled_fraction_num += 1
-    return result
-
-def _upscale_large_img_helper(img, scaler):
-    if scaler not in [2, 3, 4]:
-        print(f"Invalid scaler value: {scaler}. Must be 2, 3 or 4.")
-        return None
-    if not cv2.cuda.getCudaEnabledDeviceCount():
-        print("No CUDA-enabled GPU found.")
-        return None
-    
-    h, w, c = img.shape
-    if h * w < PIXELS_LIMIT:
-        return _upscale_img(img, scaler)
-    
-    if w < h:
-        upper = np.zeros((scaler*h, scaler*w, c))
-        below = np.zeros((scaler*h, scaler*w, c))
-
-        upper[0:scaler*(h//2 + OVERLAP_HALF_LENGTH),:] = _upscale_large_img_helper(img[0:(h//2 + OVERLAP_HALF_LENGTH),:], scaler=scaler)
-        below[scaler*(h//2 - OVERLAP_HALF_LENGTH):scaler*h,:] = _upscale_large_img_helper(img[(h//2 - OVERLAP_HALF_LENGTH):h,:], scaler=scaler)
-
-        # h//2 - OVERLAP_HALF_LENGTH ~ h//2 + OVERLAP_HALF_LENGTH
-        alpha = np.ones((scaler*h, scaler*w)) * np.arange(scaler * h).reshape(-1, 1)
-        start = scaler * (h//2 - OVERLAP_HALF_LENGTH)
-        end = scaler * (h//2 + OVERLAP_HALF_LENGTH)
-        alpha = np.clip((alpha - start) / (end - start), 0, 1)
-
-        alpha_3ch = np.repeat(alpha[:, :, np.newaxis], 3, axis=2)
-
-        upper_f = upper.astype(np.float32)
-        below_f = below.astype(np.float32)
-
-        blended = upper_f * (1-alpha_3ch) + below_f * alpha_3ch
-        blended = np.clip(blended, 0, 255).astype(np.uint8)
-        return blended
-    
-    else:
-        left = np.zeros((scaler*h, scaler*w, c))
-        right = np.zeros((scaler*h, scaler*w, c))
-        
-        left[:,0:scaler*(w//2 + OVERLAP_HALF_LENGTH)] = _upscale_large_img_helper(img[:,0:(w//2 + OVERLAP_HALF_LENGTH)], scaler=scaler)
-        right[:,scaler*(w//2 - OVERLAP_HALF_LENGTH):scaler*w] = _upscale_large_img_helper(img[:,(w//2 - OVERLAP_HALF_LENGTH):w], scaler=scaler)
-
-        # w//2 - OVERLAP_HALF_LENGTH ~ w//2 + OVERLAP_HALF_LENGTH
-        alpha = np.ones((scaler*h, scaler*w)) * np.arange(scaler * w).reshape(1, -1)
-        start = scaler * (w//2 - OVERLAP_HALF_LENGTH)
-        end = scaler * (w//2 + OVERLAP_HALF_LENGTH)
-        alpha = np.clip((alpha - start) / (end - start), 0, 1)
-        
-        alpha_3ch = np.repeat(alpha[:, :, np.newaxis], 3, axis=2)
-        
-        left_f = left.astype(np.float32)
-        right_f = right.astype(np.float32)
-
-        blended = left_f * (1-alpha_3ch) + right_f * alpha_3ch
-        blended = np.clip(blended, 0, 255).astype(np.uint8)
-        return blended
-
-def upscale_large_img(img, scaler):
-    """
-    img: 이미지 ndarray
-    scaler: 배율(2 or 3 or 4)
-    """
-    global _upscaled_fraction_num
-    _upscaled_fraction_num = 0
-
     t1 = time.time()
-    result = _upscale_large_img_helper(img, scaler=scaler)
-    if _upscaled_fraction_num > 1:
-        print(f'upscaled after being divided into {_upscaled_fraction_num} fragments.')
+    result = upscale_img(img)
+    t2 = time.time()
+
+    if upsampled_fraction_num > 1:
+        print(f'upscaled after being divided into {upsampled_fraction_num} fragments.')
     else:
         print(f'upscaled without fraction')
-    t2 = time.time()
-    print(f'{t2-t1} sec taken')
-    _upscaled_fraction_num = 0
+    print(f'{t2-t1} sec taken qqqqq')
+
+    del sr
+    gc.collect()
     return result
+
+
+# TODO: np 대신 cp 적용 -> 메모리 해제 시간 고려 효율은 생각해봐야함
+# TODO: 분할 단위를 2의 거듭제곱으로 할 때, 한계 크기의 절반 보다 약간 크게 잘리면 비효율적 -> 자르는 단위 수정 고려
 
 
