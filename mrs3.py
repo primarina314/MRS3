@@ -971,7 +971,7 @@ def upscale_large_img(img, scaler):
         print(f'upscaled after being divided into {upsampled_fraction_num} fragments.')
     else:
         print(f'upscaled without fraction')
-    print(f'{t2-t1} sec taken qqqqq')
+    print(f'{t2-t1} sec taken')
 
     del sr
     gc.collect()
