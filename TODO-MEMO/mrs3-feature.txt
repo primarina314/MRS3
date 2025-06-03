@@ -17,3 +17,4 @@ TODO: packaging 과정 mrs3.py - compress 및 restore 함수에 넣어야 함
 
 TODO: web crawling 통한 추가 압축 과정도 (파라미터 옵션/선택사항으로) compress 에 넣어야 함.
 
+TODO: yolo 등으로 사람/사물 등 자동 선택 옵션도 넣으면 좋을듯. VSR 의 경우에는 DEEPSORT 등으로 자동추적까지(영상이므로 이건 필수)
