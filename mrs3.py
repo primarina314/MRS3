@@ -682,9 +682,7 @@ def _select_multiple_polygon_roi(image_path):
 
 # mrs3 mode, select roi mode
 """
-multiple targets
-테스트용
-내부 구조에서 여러 타겟 리스트로 loc, ndarray 저장 필요함
+for multiple targets
 TODO: 현재는 poly 만 multiple targets -> 이후에 rect 및 curves 도 도입
 """
 def compress_img_mult_tgs(img_path, output_path, scaler, roi_mode, interpolation=INTER_AREA):
@@ -818,6 +816,7 @@ def _blend_images_with_contour_distance(A, B, contour, blend=BLEND_SINUSOIDAL):
     
     return blended
 
+# TODO: 큰 이미지에 대해서는 upscale_large_img 로 처리 - 아니면 그냥 바로 upscale_large_img 로 하고 내부에 크기 판정 조건문 추가하는 식으로 처리
 def restore_img_mult_tgs(input_path, mrs3_mode, output_path=""):
     global t1, t2, t3
     t1 = t2 = t3 = 0
