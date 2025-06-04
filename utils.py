@@ -14,6 +14,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import os
 import time
 import struct
+# import 
 
 def compress_imgpresso(img_path, output_path):
     """
@@ -79,6 +80,84 @@ def compress_imgpresso(img_path, output_path):
         
     finally:
         time.sleep(1) # 보조장치 -> 10초는 너무 길고, 줄일 필요 있음
+        driver.quit()
+
+
+
+    return
+
+# 같은 폴더면 안 되는 현상 발생 -> 이미지 참조 중에 삭제 같은 이유라기엔 이미 업로드 끝내고 삭제하는거라 아닌거 같고
+def compress_imgpresso_replace(img_path, output_path):
+    """
+    output_path 에 이미 같은 이름(basename)의 파일이 있으면 기존 파일 지우고 용량이 감소한 파일이 대체하도록 설정
+    img_path: relative path of img
+    output_path: relative path of output folder
+    """
+    if not os.path.exists(output_path):
+        os.mkdir(output_path)
+
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_argument("--headless=new") # 헤드리스 모드
+
+    prefs = {
+        "download.default_directory": os.path.join(os.getcwd(), output_path),
+        "download.prompt_for_download": False,
+        "download.directory_upgrade": True,
+        "safebrowsing.enabled": True
+    }
+
+    chrome_options.add_experimental_option("prefs", prefs)
+    driver = webdriver.Chrome(options=chrome_options)
+    wait = WebDriverWait(driver, 10)  # 대기 시간 설정
+
+    try:
+        # 1. 홈페이지 접속
+        driver.get("https://imgpresso.co.kr")
+        
+        # 2. 이미지 업로드
+        upload_input = wait.until(EC.presence_of_element_located(
+            (By.XPATH, "//input[@type='file']")))
+        upload_input.send_keys(os.path.join(os.getcwd(), img_path))
+        
+        # 3. 옵션 선택(압축비율)
+        processing_complete = wait.until(EC.visibility_of_element_located(
+            (By.XPATH, "//div[contains(@id, 'conv-area-upload')]")))
+
+        option_xpath = "//div[@id='b-ip-profile-2']"
+        option_element = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, option_xpath)))
+        option_element.click()
+        
+        # 4. 다운로드 버튼 클릭
+        confirm_btn = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//div[@id='b-ip-upload-ok']")))        
+        confirm_btn.click()
+        
+        # 5. 처리 완료 대기
+        processing_complete = wait.until(EC.visibility_of_element_located(
+            (By.XPATH, "//div[contains(@id, 'conv-area-complete')]")))
+        
+        # 5.5. 같은 이름의 파일이 있으면 삭제
+        basename = os.path.basename(img_path)
+        file_path = os.path.join(output_path, basename)
+        if os.path.isfile(file_path):
+            os.unlink(file_path)
+
+        # 6. 다운로드 버튼 클릭
+        download_btn = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//div[contains(@id, 'b-ip-download')]")))
+        download_btn.click()
+        
+        # 7. 다운로드 완료 확인
+        # TODO: 아래 코드에선 이미 다운로드된 png 파일에 의해 정상적으로 작동 안 됨 -> 새로운 png 만 인식하도록 수정할 필요 있음.
+        start_time = time.time()
+        while not any(fname.endswith('.png') for fname in os.listdir(output_path)):
+            if time.time() - start_time > 60:
+                raise TimeoutError("다운로드 시간 초과")
+            time.sleep(1)
+        
+    finally:
+        time.sleep(1) # 보조장치 -> 10초는 너무 길고, 줄일 필요 있음. 1초도 좀 긴가
         driver.quit()
 
 

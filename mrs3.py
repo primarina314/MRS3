@@ -281,6 +281,7 @@ roi_binary_filename = 'bin' # png
 # mrs3 mode, select roi mode
 def compress_img(img_path, output_path, scaler, roi_mode, interpolation=INTER_AREA):
     """
+    단일 타겟 대상 압축
     img_path: mrs3 적용할 이미지 경로
     output_path: 결과 저장할 폴더 경로
     scaler: 이미지 downscale 배율
@@ -1054,6 +1055,45 @@ def compress_img_npz(img_path, output_path, scaler, roi_mode, interpolation=INTE
 
 
 
-def compress_img_pkg_imgpresso():
-    pass
+def compress_img_pkg_imgpresso(img_path, output_path, filename='mrs_output.pkg', scaler=4, roi_mode=ROI_POLYGON, interpolation=INTER_AREA):
+    """
+    압축은 더욱 효과적이지만, 인터넷 접속, 서버 내 처리 및 다운로드 등으로 인한 시간이 추가적으로 소요됨
+    img_path: mrs3 적용할 이미지 경로
+    output_path: 결과 저장할 폴더 경로
+    filename: 패키징할 파일 이름(e.g. img.pkg)
+    scaler: 이미지 downscaling 배율
+    roi_mode: 타겟 설정 방식(직사각형, 다각형, 곡선)
+    interpolation: downscale 시에 사용할 interpolation
+    """
+
+    compress_img_mult_tgs(img_path=img_path, 
+                          output_path=output_path, 
+                          scaler=scaler,
+                          roi_mode=roi_mode, 
+                          interpolation=interpolation)
+    
+    config = configparser.ConfigParser()
+    config.read(f'{output_path}/{config_filename}.ini')
+    target_num = int(config['DEFAULT']['NUMBER_OF_TARGETS'])
+
+    # TODO: utils.compress_imgpresso 사용해서 한 번 더 압축 -> 다만 roi 및 bin 이 다르게 보정되면 복원 시에 검은 점이나 흐릿한 부분이 생길 수 있음. 
+    utils.compress_imgpresso_replace(f'{output_path}/{downscaled_filename}.png', output_path)
+    for i in range(target_num):
+        utils.compress_imgpresso_replace(f'{output_path}/{roi_filename}{i}.png', output_path)
+        # utils.compress_imgpresso_replace(f'{output_path}/{roi_binary_filename}{i}.png', output_path) # 바이너리는 적용이 안 되고, 된다하더라도 어차피 바이너리는 용량 작아서 별 의미 없음
+    
+    pkg_files = [f'{output_path}/{config_filename}.ini', f'{output_path}/{downscaled_filename}.png']
+    for i in range(target_num):
+        pkg_files.append(f'{output_path}/{roi_filename}{i}.png')
+        pkg_files.append(f'{output_path}/{roi_binary_filename}{i}.png')
+
+    utils.pack_files(output_file=f'{output_path}/{filename}', input_files=pkg_files)
+
+    filesize_pkg = os.path.getsize(f'{output_path}/{filename}')
+    print(f'pkg file: {filesize_pkg}')
+
+    for pfile in pkg_files:
+        os.unlink(pfile)
+    
+    return
 
