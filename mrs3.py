@@ -7,6 +7,7 @@ from PIL import Image
 import configparser
 import interpolation as inter
 import gc
+import utils
 
 
 ROI_RECTANGLE = 0
@@ -746,14 +747,16 @@ def compress_img_mult_tgs(img_path, output_path, scaler, roi_mode, interpolation
         filesize_roi_bin += os.path.getsize(f'{output_path}/{roi_binary_filename}{i}.png')
     filesize_config = os.path.getsize(f'{output_path}/{config_filename}.ini')
 
-    print(f'original file: {filesize_bef}')
+    print(f'original filesize: {filesize_bef}')
     print(f'downscaled filesize: {filesize_downscaled}')
     print(f'roi filesize: {filesize_roi}')
     print(f'roi bin filesize: {filesize_roi_bin}')
     print(f'config filesize: {filesize_config}')
+    print(f'total filesize: {(filesize_downscaled + filesize_roi + filesize_roi_bin + filesize_config)}')
 
     # 파일 사이즈 압축률 print
     print(f'compression ratio: {(filesize_downscaled + filesize_roi + filesize_roi_bin + filesize_config) / filesize_bef}')
+    
     return
 
 BLEND_LINEAR = 0
@@ -980,4 +983,77 @@ def upscale_large_img(img, scaler):
 # TODO: np 대신 cp 적용 -> 메모리 해제 시간 고려 효율은 생각해봐야함
 # TODO: 분할 단위를 2의 거듭제곱으로 할 때, 한계 크기의 절반 보다 약간 크게 잘리면 비효율적 -> 자르는 단위 수정 고려
 
+
+def compress_img_pkg(img_path, output_path, filename='mrs_output.pkg', scaler=4, roi_mode=ROI_POLYGON, interpolation=INTER_AREA):
+    """
+    img_path: mrs3 적용할 이미지 경로
+    output_path: 결과 저장할 폴더 경로
+    filename: 패키징할 파일 이름(e.g. img.pkg)
+    scaler: 이미지 downscaling 배율
+    roi_mode: 타겟 설정 방식(직사각형, 다각형, 곡선)
+    interpolation: downscale 시에 사용할 interpolation
+    """
+
+    compress_img_mult_tgs(img_path=img_path, 
+                          output_path=output_path, 
+                          scaler=scaler,
+                          roi_mode=roi_mode, 
+                          interpolation=interpolation)
+    
+    config = configparser.ConfigParser()
+    config.read(f'{output_path}/{config_filename}.ini')
+    target_num = int(config['DEFAULT']['NUMBER_OF_TARGETS'])
+    
+    pkg_files = [f'{output_path}/{config_filename}.ini', f'{output_path}/{downscaled_filename}.png']
+    for i in range(target_num):
+        pkg_files.append(f'{output_path}/{roi_filename}{i}.png')
+        pkg_files.append(f'{output_path}/{roi_binary_filename}{i}.png')
+
+    utils.pack_files(output_file=f'{output_path}/{filename}', input_files=pkg_files)
+
+    filesize_pkg = os.path.getsize(f'{output_path}/{filename}')
+    print(f'pkg file: {filesize_pkg}')
+
+    for pfile in pkg_files:
+        os.unlink(pfile)
+    
+    return
+
+
+def restore_img_pkg(input_path, mrs3_mode, output_path=""):
+    pass
+
+# TODO: npz 랑 png 압축 비율 비교해봐야함
+def compress_img_npz(img_path, output_path, scaler, roi_mode, interpolation=INTER_AREA):
+    # TODO: pkg 말고 npz 등으로 저장해도 될듯 -> 압축효율도 높고 -> 다시보니 png 가 이미지에 대해 효율이 높으므로 다수 png 및 pkg 로 처리하는게 나아보인다
+    # 우선 png 및 pkg 로 처리하고 나중에 비교해보는 식으로
+    img = cv2.imread(img_path)
+    
+    if img is None:
+        print(f"Error loading image: {img_path}")
+        return
+    
+    targets = _select_multiple_polygon_roi(img_path)
+
+    # TODO: 다양한 interpolation 비교 및 복원 비교
+    downscaled = _downscale_img(img_path, scaler, interpolation=interpolation)
+
+    # 각 타겟 위치정보 저장
+    config = np.zeros(shape=(len(targets), 4), dtype=np.int8)
+    for i in range(len(targets)):
+        config[i][0] = targets[i][2][0] # Y_FROM
+        config[i][1] = targets[i][2][1] # Y_TO
+        config[i][2] = targets[i][2][2] # X_FROM
+        config[i][3] = targets[i][2][3] # X_TO
+
+    # 결과저장 폴더 없을 때 새로 생성
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+
+    pass
+
+
+
+def compress_img_pkg_imgpresso():
+    pass
 
