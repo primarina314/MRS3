@@ -22,4 +22,5 @@ TODO: yolo 등으로 사람/사물 등 자동 선택 옵션도 넣으면 좋을�
 TODO: EDSR 외의 다른 SR 모델도 활용 및 비교
 
 TODO: web crawling 다른 사이트도(https://www.iloveimg.com/ko/compress-image, https://imgpresso.co.kr/)
+ㄴ 어떤거로 할지 선택하는 옵션도
 
