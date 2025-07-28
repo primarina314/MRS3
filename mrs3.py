@@ -823,6 +823,13 @@ def _blend_images_with_contour_distance(A, B, contour, blend=BLEND_SINUSOIDAL):
 
 # TODO: 큰 이미지에 대해서는 upscale_large_img 로 처리 - 아니면 그냥 바로 upscale_large_img 로 하고 내부에 크기 판정 조건문 추가하는 식으로 처리
 def restore_img_mult_tgs(input_path, mrs3_mode, output_path=""):
+    """
+    input_path(폴더) 내부의 
+    :param input_path: 입력 파일 경로 (예: 'output.pkg')
+    :param output_path: 출력 디렉토리 경로 (예: 'restored-folder/restored.png')
+
+    """
+
     global t1, t2, t3
     t1 = t2 = t3 = 0
     """
@@ -1023,7 +1030,24 @@ def compress_img_pkg(img_path, output_path, filename='mrs_output.pkg', scaler=4,
 
 
 def restore_img_pkg(input_path, mrs3_mode, output_path=""):
+    """
+    패키지 파일(.pkg)에서 원본 파일을 추출합니다.
+    
+    :param input_path: 입력 파일 경로 (예: 'output.pkg')
+    :param output_path: 출력 디렉토리 경로 (예: 'restored-folder/restored.png')
+
+    TODO: restore_img_mult_tgs 에서 output_path 에 .png 도 입력으로 받도록
+    같은 폴더 안에 여러 장 저장해놓으려면 이게 나을듯
+    서버 접근 시간 고려한 폴더 네이밍으로 한번에 저장 및 리턴
+
+    TODO: unpack 이후에 restore_mult_tgs
+    """
+    # 복원 후에 임시 폴더 삭제
+    temp_folder = "temp-folder"
+    utils.unpack_files(input_path, temp_folder)
+    restore_img_mult_tgs(input_path=temp_folder, mrs3_mode=mrs3_mode, output_path=output_path)
     pass
+
 
 # TODO: npz 랑 png 압축 비율 비교해봐야함
 def compress_img_npz(img_path, output_path, scaler, roi_mode, interpolation=INTER_AREA):
