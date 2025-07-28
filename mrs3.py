@@ -138,9 +138,6 @@ def _upscale_by_edsr(image_path, scaler):
     if scaler not in [2, 3, 4]:
         print(f"Invalid scaler value: {scaler}. Must be 2, 3 or 4.")
         return None
-    if not cv2.cuda.getCudaEnabledDeviceCount():
-        print("No CUDA-enabled GPU found.")
-        return None
 
     sr = cv2.dnn_superres.DnnSuperResImpl_create()
     try:
@@ -150,8 +147,12 @@ def _upscale_by_edsr(image_path, scaler):
         return None
 
     # gpu acceleration
-    sr.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-    sr.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+    if(cv2.cuda.getCudaEnabledDeviceCount()):
+        print("gpu is available")
+        sr.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+        sr.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+    else:
+        print('gpu is not available')
 
     sr.setModel('edsr', scaler)
 
