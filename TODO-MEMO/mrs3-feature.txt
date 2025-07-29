@@ -24,3 +24,13 @@ TODO: EDSR 외의 다른 SR 모델도 활용 및 비교
 TODO: web crawling 다른 사이트도(https://www.iloveimg.com/ko/compress-image, https://imgpresso.co.kr/)
 ㄴ 어떤거로 할지 선택하는 옵션도
 
+**
+압축
+input: png 여러개
+output: pkg 여러개 또는 pkg 담긴 zip
+ㄴ zip 리턴: 같은 폴더에 안에 pkg 저장
+
+복원
+input: pkg 여러개 또는 pkg 담긴 zip
+output: png 여러개(이중에서 선택) 또는 png 담긴 zip
+ㄴ zip 를 리턴하려면 일단 같은 폴더 안에 넣어야 하니까 restore 시에 파일명.png 지정까지 가능하도록 수정
