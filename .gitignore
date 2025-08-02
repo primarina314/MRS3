@@ -6,3 +6,4 @@ MIA-VSR/experiments/pretrained_models/MIAVSR_REDS_x4.pth
 MIA-VSR/experiments/pretrained_models/MIAVSR_Vid4_x4.pth
 temp/*
 temp-folder/*
+models/yolov8x-face-lindevs.pt
