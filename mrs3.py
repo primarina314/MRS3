@@ -1200,7 +1200,7 @@ def compress_img_mult_tgs_server(
     delete_temp=False
 ):
     """
-    여러 ROI를 압축해 패키지(.pkg) 파일로 저장합니다.
+    여러 ROI를 압축해 패키지(.pkg) 파일로 저장합니다. 단일 이미지 처리.
 
     Args:
         img_path (str): 원본 이미지 경로

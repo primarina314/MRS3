@@ -49,7 +49,15 @@ output: png 여러 개(이중에서 선택) 또는 png 담긴 zip
 
 추가기능
 자동타겟 옵션 설정
-zip 으로 주어지면 압축풀고 자동으로 한번에 처리하는 과정으로 넘어가기
+zip 으로 주어지면 압축풀고 자동으로 한번에 처리하는 과정으로 넘어가기(압축, 복원 둘 다)
 zip 으로 저장
 
+
+auto, manual 2개 폴더
+
+auto -> temp -> zip
+manual -> temp -> zip
+
+압축: out-zip(O)
+복원: in-zip(O)
 

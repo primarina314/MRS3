@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 from ultralytics import YOLO
 import zipfile
+from dataclasses import dataclass
 
 """
 압축
@@ -115,14 +116,26 @@ def _select_multiple_polygon_roi(image_path):
 
 model = YOLO('models/yolov8m-face-lindevs.pt')
 
-def compress_mult_img_server(input_path, output_path, manual=True, scaler=4, interpolation=mr.INTER_AREA):
+def compress_mult_img_server(
+        input_path: str, 
+        output_path: str, 
+        manual=True, 
+        scaler=4, 
+        interpolation=mr.INTER_AREA
+        ):
     """
-    :param input_path: 수동 압축 이미지 모아놓은 폴더 경로
+    :param input_path: 수동 압축 대상 이미지 모아놓은 폴더 경로
     :param output_path: pkg 결과 저장 폴더 경로
     :param manual: 해당 폴더 처리 자동/수동 여부. True 면 수동, False 면 자동.
     :param scaler: 이미지 shrink scaler
     :param interpolation: shrink 에 적용할 interpolation manner
     """
+
+    target_path = output_path
+    fn, ext = os.path.splitext(output_path)
+    if ext.lower() == '.zip':
+        target_path = get_unique_path(fn, suffix="pkgs-folder_")
+
     for filename in os.listdir(input_path):
         if filename.lower().endswith('.png'):
             full_path = os.path.join(input_path, filename)
@@ -147,20 +160,66 @@ def compress_mult_img_server(input_path, output_path, manual=True, scaler=4, int
                     roi_point_lists.append([(x1,y1), (x2,y1), (x2,y2), (x1,y2)])
             
             mr.compress_img_mult_tgs_server(img_path=full_path, 
-                                            output_path=output_path, 
+                                            output_path=target_path, 
                                             scaler=scaler, 
                                             pkg_filename=pkg_filename,
                                             roi_point_lists=roi_point_lists,
                                             interpolation=interpolation,
                                             delete_temp=True)
+    if target_path != output_path: # output_path 가 zip 이면 zip 으로 압축해서 저장
+        zip_folder_server(target_path, output_path)
     return
 
-def restore_imgs_in_folder_server(input_path, output_path, mrs3_mode):
-    # input 이 zip 이면 압축해제한 후에 압축해제 폴더 경로를 input_path 에 넣으면 됨
+@dataclass
+class CompressInputInfo:
+    path: str
+    manual: bool = True
+    scaler: int = 4
+    interpolation: int = mr.INTER_AREA
 
-    for filename in os.listdir(input_path):
+
+def compress_mult_imgs_in_mult_folders_server(
+        input_infos: list[CompressInputInfo], 
+        output_path: str
+        ) -> None:
+    """
+    다수 폴더 내 이미지 한 번에 처리
+    e.g. 자동 타겟 이미지 모아놓은 폴더 및 수동타겟 모은 폴더 한 번에 묶어서 처리
+    """
+
+    target_path = output_path
+    fn, ext = os.path.splitext(output_path)
+    if ext.lower() == '.zip':
+        target_path = get_unique_path(fn, suffix="pkgs-folder_")
+    
+    for info in input_infos:
+        compress_mult_img_server(input_path=info.path,
+                                 output_path=target_path,
+                                 manual=info.manual,
+                                 scaler=info.scaler,
+                                 interpolation=info.interpolation
+                                 )
+    
+    if target_path != output_path: # output_path 가 zip 이면 zip 으로 압축해서 저장
+        zip_folder_server(target_path, output_path)
+
+def restore_imgs_in_folder_server(input_path: str, output_path: str, mrs3_mode):
+
+    """
+    input_path 확장자가 .zip 이면 자동으로 압축해제해서 처리
+    """
+
+    target_path = input_path
+
+    fn, ext = os.path.splitext(input_path)
+    if ext.lower() == '.zip':
+        unzip_path = get_unique_path(fn, suffix="unzip_")
+        unzip_server(input_path, unzip_path)
+        target_path = unzip_path
+
+    for filename in os.listdir(target_path):
         if filename.lower().endswith('.pkg'):
-            full_path = os.path.join(input_path, filename)
+            full_path = os.path.join(target_path, filename)
 
             filename_with_ext = os.path.basename(filename)
             img_filename_split, _ = os.path.splitext(filename_with_ext)
@@ -174,7 +233,7 @@ def restore_imgs_in_folder_server(input_path, output_path, mrs3_mode):
                                            output_path=output_path, 
                                            img_filename=img_filename)
 
-def zip_folder_server(folder_path, zip_filename):
+def zip_folder_server(folder_path: str, zip_filename: str):
     """
     :param folder_path: 폴더 경로
     :param zip_filename: 저장할 zip 파일명(e.g. compression.zip)
@@ -189,7 +248,7 @@ def zip_folder_server(folder_path, zip_filename):
     return
 
 
-def unzip_server(zip_path, extract_folder):
+def unzip_server(zip_path: str, extract_folder: str):
     """
     :param zip_path: 압축해제하고자 하는 zip 파일 경로(file.zip)
     :param extract_folder: 압축해제하여 파일들을 저장할 폴더 경로
