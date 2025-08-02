@@ -4,3 +4,5 @@ models/yolov8x.pt
 __pycache__/
 MIA-VSR/experiments/pretrained_models/MIAVSR_REDS_x4.pth
 MIA-VSR/experiments/pretrained_models/MIAVSR_Vid4_x4.pth
+temp/*
+temp-folder/*
