@@ -787,6 +787,11 @@ def _blend_images_with_contour_distance(A, B, contour, blend=BLEND_SINUSOIDAL):
     mask = np.zeros((h, w), dtype=np.uint8)
     cv2.drawContours(mask, [contour], -1, 255, thickness=-1)
     
+    mask[0,:] = 0
+    mask[h-1,:] = 0
+    mask[:,0] = 0
+    mask[:,w-1] = 0
+
     # contour 내부 픽셀에 대해 거리 변환 (contour 경계까지 거리)
     dist_transform = cv2.distanceTransform(mask, distanceType=cv2.DIST_L2, maskSize=3)
     # 이미지 크기에 따라 max_distance(블렌딩 두께) 다르게 설정
@@ -1327,6 +1332,7 @@ def restore_img_mult_tgs_server(input_path, mrs3_mode, output_path="", img_filen
         contours, _ = cv2.findContours(bin_roi_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             continue
+        # upscaled = np.zeros_like(upscaled) # blend 테스트용 코드
         restored[y_from:y_to, x_from:x_to] = _blend_images_with_contour_distance(
             upscaled[y_from:y_to, x_from:x_to],
             restored[y_from:y_to, x_from:x_to],
